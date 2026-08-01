@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from gradescope.models import CostBook, ServiceLevel
 from gradescope.validate import ValidationError
@@ -71,6 +71,9 @@ def tax_rate_on(book: CostBook, what: str) -> Decimal:
     return ZERO
 
 
+SHARE_QUANTUM = Decimal("0.000001")
+
+
 @dataclass(frozen=True)
 class SharedCosts:
     """The batch-shared pool S and its line items (SPEC §6: flat S/N split)."""
@@ -82,7 +85,21 @@ class SharedCosts:
         return sum(self.lines.values(), ZERO)
 
     def share(self, n_cards: int) -> Decimal:
-        return self.total / n_cards
+        return self.shares(n_cards)[0]
+
+    def shares(self, n_cards: int) -> list[Decimal]:
+        """Flat S/N split with the invariant sum(shares) == S held EXACTLY.
+
+        S/N rarely terminates in decimal (52.99/3), so shares are floored to a
+        1e-6 quantum and the remainder is distributed one quantum at a time to
+        the first cards in batch order — deterministic, and off by at most a
+        micro-cent per card. All cost-book amounts have <= 6 decimal places,
+        so the invariant is exact.
+        """
+        total = self.total
+        base = (total / n_cards).quantize(SHARE_QUANTUM, rounding=ROUND_FLOOR)
+        remainder_quanta = int((total - base * n_cards) / SHARE_QUANTUM)
+        return [base + SHARE_QUANTUM if i < remainder_quanta else base for i in range(n_cards)]
 
 
 def shared_costs(

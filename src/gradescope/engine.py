@@ -256,46 +256,212 @@ def analyze_standalone(
     return analyze_card(card_id, probs, values, book, scenario, 1, shared.share(1), config, as_of)
 
 
-def make_batch_analyses(
+@dataclass(frozen=True)
+class MarginalCard:
+    """How one card interacts with the batch's shared costs, per view.
+
+    category (per view):
+      standalone — net-positive even carrying the whole shared pool alone
+      ride_along — positive only because shared costs are split
+      drag       — removing it raises total net gain
+      negative   — negative in-batch, but removal doesn't help (rare: the
+                   shared-cost reshuffle outweighs the card's own loss)
+    """
+
+    card_id: str
+    standalone_gain: dict[str, Decimal]
+    in_batch_gain: dict[str, Decimal]
+    removal_delta: dict[str, Decimal]  # total_net_gain(without card) - (with card)
+    category: dict[str, str]
+
+
+@dataclass(frozen=True)
+class BatchAnalysis:
+    batch: Batch
+    analyses: list[CardAnalysis]
+    shared: object  # SharedCosts (kept untyped to avoid a circular annotation)
+    shares_by_card: dict[str, Decimal]
+    total_cost: Decimal
+    total_ev_submit: dict[str, Decimal]  # per view
+    total_net_gain: dict[str, Decimal]  # per view
+    marginals: list[MarginalCard]
+    tier_minimum_flags: list[str]
+
+
+VIEWS = ("sticker", "take_home")
+
+
+def _view_of(analysis: CardAnalysis, view: str) -> ViewResult:
+    return analysis.sticker if view == "sticker" else analysis.take_home
+
+
+def _batch_card_analyses(
+    card_ids: tuple[str, ...],
+    scenario: str,
+    membership_already_held: bool,
+    probs_by_card: dict[str, GradeProbs],
+    values_by_card: dict[str, CardValues],
+    book: CostBook,
+    config: EngineConfig,
+    as_of: date,
+) -> tuple[list[CardAnalysis], object, dict[str, Decimal]]:
+    """Per-card analyses for one card set with a single shared pool (flat split)."""
+    n = len(card_ids)
+    tiers = {}
+    total_dv = ZERO
+    for cid in card_ids:
+        dv = declared_value(probs_by_card[cid], values_by_card[cid], config.alpha)
+        tiers[cid] = select_tier(book, scenario, dv, n)
+        total_dv += dv
+    shared = shared_costs(
+        book,
+        scenario,
+        n_cards=n,
+        total_declared=total_dv,
+        tiers_used=list(tiers.values()),
+        membership_already_held=membership_already_held,
+    )
+    shares = shared.shares(n)
+    shares_by_card = dict(zip(card_ids, shares, strict=True))
+    analyses = [
+        analyze_card(
+            cid,
+            probs_by_card[cid],
+            values_by_card[cid],
+            book,
+            scenario,
+            n,
+            shares_by_card[cid],
+            config,
+            as_of,
+        )
+        for cid in card_ids
+    ]
+    return analyses, shared, shares_by_card
+
+
+def _totals(analyses: list[CardAnalysis]) -> tuple[Decimal, dict[str, Decimal], dict[str, Decimal]]:
+    total_cost = sum((a.cost.total for a in analyses), ZERO)
+    ev = {v: sum((_view_of(a, v).ev_submit for a in analyses), ZERO) for v in VIEWS}
+    gain = {v: sum((_view_of(a, v).net_gain for a in analyses), ZERO) for v in VIEWS}
+    return total_cost, ev, gain
+
+
+def _tier_minimum_flags(
+    book: CostBook, scenario: str, n: int, total_dv: Decimal, config: EngineConfig
+) -> list[str]:
+    from gradescope.costs import return_shipping_fee, tax_rate_on
+
+    flags = []
+    for lvl in book.orderable_levels(scenario):
+        if lvl.min_cards and n < lvl.min_cards:
+            filler = lvl.min_cards - n
+            per_filler = (
+                lvl.fee_per_card
+                + lvl.fee_per_card * tax_rate_on(book, "grading_fees")
+                + book.supplies.per_card
+            )
+            shipping_delta = return_shipping_fee(
+                book, lvl.min_cards, total_dv
+            ) - return_shipping_fee(book, n, total_dv)
+            extra = (per_filler * filler + shipping_delta).quantize(Decimal("0.01"))
+            membership_note = (
+                " (plus Collectors Club membership if not held)" if lvl.membership_required else ""
+            )
+            flags.append(
+                f"batch of {n} is below the {lvl.min_cards}-card minimum for tier "
+                f"'{lvl.name}' (${lvl.fee_per_card}/card): adding {filler} filler cards "
+                f"would cost about ${extra} in fees/supplies/shipping{membership_note}"
+            )
+    return flags
+
+
+def analyze_batch(
     batch: Batch,
     probs_by_card: dict[str, GradeProbs],
     values_by_card: dict[str, CardValues],
     book: CostBook,
     config: EngineConfig,
     as_of: date,
-) -> list[CardAnalysis]:
-    """Batch-aware per-card analyses: tier per card, one shared pool split S/N.
-
-    (Totals/marginal analysis land in Task 4; this provides the shared-cost
-    plumbing they build on.)
-    """
-    n = len(batch.card_ids)
-    tiers = {}
-    total_dv = ZERO
-    for cid in batch.card_ids:
-        dv = declared_value(probs_by_card[cid], values_by_card[cid], config.alpha)
-        tiers[cid] = select_tier(book, batch.pricing_scenario, dv, n)
-        total_dv += dv
-    shared = shared_costs(
-        book,
+) -> BatchAnalysis:
+    """Batch-aware analysis (SPEC §6): flat-split shared pool, per-card marginal
+    classification via recompute-with-removal, and tier-minimum flags."""
+    analyses, shared, shares_by_card = _batch_card_analyses(
+        batch.card_ids,
         batch.pricing_scenario,
-        n_cards=n,
-        total_declared=total_dv,
-        tiers_used=list(tiers.values()),
-        membership_already_held=batch.membership_already_held,
+        batch.membership_already_held,
+        probs_by_card,
+        values_by_card,
+        book,
+        config,
+        as_of,
     )
-    share = shared.share(n)
-    return [
-        analyze_card(
+    total_cost, total_ev, total_gain = _totals(analyses)
+
+    marginals: list[MarginalCard] = []
+    for cid in batch.card_ids:
+        standalone = analyze_standalone(
             cid,
             probs_by_card[cid],
             values_by_card[cid],
             book,
             batch.pricing_scenario,
-            n,
-            share,
             config,
             as_of,
+            membership_already_held=batch.membership_already_held,
         )
-        for cid in batch.card_ids
-    ]
+        in_batch = next(a for a in analyses if a.card_id == cid)
+        remaining = tuple(c for c in batch.card_ids if c != cid)
+        if remaining:
+            without, _, _ = _batch_card_analyses(
+                remaining,
+                batch.pricing_scenario,
+                batch.membership_already_held,
+                probs_by_card,
+                values_by_card,
+                book,
+                config,
+                as_of,
+            )
+            _, _, gain_without = _totals(without)
+        else:
+            gain_without = {v: ZERO for v in VIEWS}
+        standalone_gain = {v: _view_of(standalone, v).net_gain for v in VIEWS}
+        in_batch_gain = {v: _view_of(in_batch, v).net_gain for v in VIEWS}
+        removal_delta = {v: gain_without[v] - total_gain[v] for v in VIEWS}
+        category = {}
+        for v in VIEWS:
+            if removal_delta[v] > ZERO:
+                category[v] = "drag"
+            elif standalone_gain[v] > ZERO:
+                category[v] = "standalone"
+            elif in_batch_gain[v] > ZERO:
+                category[v] = "ride_along"
+            else:
+                category[v] = "negative"
+        marginals.append(
+            MarginalCard(
+                card_id=cid,
+                standalone_gain=standalone_gain,
+                in_batch_gain=in_batch_gain,
+                removal_delta=removal_delta,
+                category=category,
+            )
+        )
+
+    total_dv = sum(
+        (declared_value(probs_by_card[c], values_by_card[c], config.alpha) for c in batch.card_ids),
+        ZERO,
+    )
+    flags = _tier_minimum_flags(book, batch.pricing_scenario, len(batch.card_ids), total_dv, config)
+    return BatchAnalysis(
+        batch=batch,
+        analyses=analyses,
+        shared=shared,
+        shares_by_card=shares_by_card,
+        total_cost=total_cost,
+        total_ev_submit=total_ev,
+        total_net_gain=total_gain,
+        marginals=marginals,
+        tier_minimum_flags=flags,
+    )

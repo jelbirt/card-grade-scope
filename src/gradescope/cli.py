@@ -6,9 +6,10 @@ from pathlib import Path
 import click
 
 from gradescope import paths, report
-from gradescope.engine import EngineConfig, analyze_standalone
+from gradescope.engine import EngineConfig, analyze_batch, analyze_standalone
 from gradescope.validate import (
     ValidationError,
+    load_batch,
     load_cost_book,
     load_inventory,
     load_probabilities,
@@ -24,7 +25,8 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--card", "card_id", required=True, help="Card id from the inventory.")
+@click.option("--card", "card_id", default=None, help="Analyze one card standalone.")
+@click.option("--batch", "batch_name", default=None, help="Analyze a batch from data/batches/.")
 @click.option(
     "--data-dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
@@ -58,50 +60,73 @@ def main() -> None:
     help="Whether a Collectors Club membership is already paid for.",
 )
 def analyze(
-    card_id: str,
+    card_id: str | None,
+    batch_name: str | None,
     data_dir: Path | None,
     cost_book_path: Path | None,
     scenario: str,
     as_of,
     membership_held: bool,
 ) -> None:
-    """Analyze one card standalone (a batch of one). Batch mode lands in Task 4."""
+    """Analyze one card standalone (--card) or a whole submission (--batch)."""
+    if (card_id is None) == (batch_name is None):
+        raise click.UsageError("pass exactly one of --card or --batch")
     data = data_dir or paths.default_data_dir()
     # Staleness is measured against the operator's local calendar date, which is
     # exactly date.today(); pass --as-of for reproducible runs.
     as_of_date = as_of.date() if as_of else date.today()  # noqa: DTZ011
+    config = EngineConfig()
     try:
         inventory = load_inventory(data / "inventory.yaml")
-        if card_id not in inventory:
-            raise ValidationError(
-                [
-                    (
-                        f"card {card_id!r} not in {data / 'inventory.yaml'} "
-                        f"(known: {', '.join(sorted(inventory))})"
-                    )
-                ]
-            )
         probs = load_probabilities(data / "probabilities.yaml")
-        if card_id not in probs:
-            raise ValidationError(
-                [f"card {card_id!r} has no grade probabilities in {data / 'probabilities.yaml'}"]
-            )
         snapshots = load_snapshots(data / "values.jsonl")
-        values = freshest_values(snapshots, [card_id])[card_id]
         book = load_cost_book(cost_book_path or paths.newest_cost_book())
-        analysis = analyze_standalone(
-            card_id,
-            probs[card_id],
-            values,
-            book,
-            scenario,
-            EngineConfig(),
-            as_of_date,
-            membership_already_held=membership_held,
-        )
+
+        if card_id is not None:
+            if card_id not in inventory:
+                raise ValidationError(
+                    [
+                        (
+                            f"card {card_id!r} not in {data / 'inventory.yaml'} "
+                            f"(known: {', '.join(sorted(inventory))})"
+                        )
+                    ]
+                )
+            if card_id not in probs:
+                raise ValidationError(
+                    [
+                        (
+                            f"card {card_id!r} has no grade probabilities in "
+                            f"{data / 'probabilities.yaml'}"
+                        )
+                    ]
+                )
+            values = freshest_values(snapshots, [card_id])[card_id]
+            analysis = analyze_standalone(
+                card_id,
+                probs[card_id],
+                values,
+                book,
+                scenario,
+                config,
+                as_of_date,
+                membership_already_held=membership_held,
+            )
+            click.echo(report.render_card_detail(analysis))
+            return
+
+        batch_path = data / "batches" / f"{batch_name}.yaml"
+        if not batch_path.exists():
+            raise ValidationError([f"no batch file {batch_path}"])
+        batch = load_batch(batch_path, inventory)
+        missing_probs = [c for c in batch.card_ids if c not in probs]
+        if missing_probs:
+            raise ValidationError([f"no grade probabilities for: {', '.join(missing_probs)}"])
+        values_map = freshest_values(snapshots, list(batch.card_ids))
+        result = analyze_batch(batch, probs, values_map, book, config, as_of_date)
+        click.echo(report.render_batch(result))
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(report.render_card_detail(analysis))
 
 
 @main.command()

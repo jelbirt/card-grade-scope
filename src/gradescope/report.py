@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from gradescope.engine import CardAnalysis, ViewResult
+from gradescope.engine import BatchAnalysis, CardAnalysis, ViewResult
 from gradescope.models import GRADES
 
 CENTS = Decimal("0.01")
@@ -94,4 +94,50 @@ def render_card_detail(analysis: CardAnalysis) -> str:
     lines.append(
         f"  OVERALL: {VERDICT_LABEL[analysis.overall_verdict]} — {analysis.overall_reason}"
     )
+    return "\n".join(lines)
+
+
+CATEGORY_LABEL = {
+    "standalone": "standalone-positive",
+    "ride_along": "ride-along",
+    "drag": "drag",
+    "negative": "negative (removal doesn't help)",
+}
+
+
+def render_batch(result: BatchAnalysis) -> str:
+    """Batch report: totals + shared pool + marginal classification + flags,
+    then per-card detail. (Summary-table layering is finalized in Task 5.)"""
+    b = result.batch
+    lines = [
+        (
+            f"### Batch '{b.name}' — {len(b.card_ids)} cards, scenario {b.pricing_scenario}, "
+            f"membership {'already held' if b.membership_already_held else 'not held'}"
+        )
+    ]
+    lines.append("  shared costs (split flat across the batch):")
+    for label, amount in result.shared.lines.items():
+        lines.append(f"    {label}: {money(amount)}")
+    lines.append(f"    total shared S = {money(result.shared.total)}")
+    lines.append(f"  total batch cost: {money(result.total_cost)}")
+    for view in ("sticker", "take_home"):
+        lines.append(
+            f"  {view.replace('_', '-')}: total EV(submit) {money(result.total_ev_submit[view])}, "
+            f"total net gain {money(result.total_net_gain[view])}"
+        )
+    lines.append("  marginal analysis (sticker view / take-home view):")
+    for m in result.marginals:
+        lines.append(
+            f"    {m.card_id}: {CATEGORY_LABEL[m.category['sticker']]}"
+            f" / {CATEGORY_LABEL[m.category['take_home']]}"
+            f"  (in-batch gain {money(m.in_batch_gain['sticker'])} / "
+            f"{money(m.in_batch_gain['take_home'])}; removing it changes total net gain by "
+            f"{money(m.removal_delta['sticker'])} / {money(m.removal_delta['take_home'])})"
+        )
+    for flag in result.tier_minimum_flags:
+        lines.append(f"  NOTE: {flag}")
+    lines.append("")
+    for analysis in result.analyses:
+        lines.append(render_card_detail(analysis))
+        lines.append("")
     return "\n".join(lines)
