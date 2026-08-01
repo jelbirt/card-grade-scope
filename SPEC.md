@@ -1,4 +1,4 @@
-# Spec: grade-scope
+# Spec: card-grade-scope
 
 **Status: DRAFT — awaiting approval (⛳ Gate 0).**
 Research provenance: [research/psa-costs-2026.md](research/psa-costs-2026.md), [research/value-sources-2026.md](research/value-sources-2026.md).
@@ -15,7 +15,7 @@ Success looks like: Jake runs one command against his data files and gets a repo
 
 ## 2. Name and directory
 
-**`grade-scope`** at `~/projects/grade-scope`. (Alternates considered: `slab-math`, `psa-ev`, `gradeworthy`. Recommendation: keep `grade-scope` — descriptive, unclaimed, portfolio-friendly. Rename at this gate if preferred.)
+**`card-grade-scope`** at `~/projects/card-grade-scope` (confirmed by Jake at Gate 0; renamed from the proposed `grade-scope`).
 
 ## 3. Tech stack
 
@@ -39,7 +39,7 @@ CLI entry point: `uv run gradescope <subcommand>` — subcommands: `add` (guided
 ## 4. Project structure
 
 ```
-grade-scope/
+card-grade-scope/
   SPEC.md
   README.md               # includes the AI/deterministic boundary diagram
   research/               # dated research notes (provenance for cost data)
@@ -135,6 +135,9 @@ return_shipping:                    # PSA chart: bands by item count x insured v
   - {items_min: 20, items_max: null, value_max: 2000, base_fee: 29.99, per_item_over: 0.39, source: {...}}
 inbound_shipping: {default: 25.00, estimate: true, source: {...}}
 supplies: {per_card: 0.30, per_submission: 8.00, estimate: true, source: {...}}
+sales_tax: {state: CT, rate: 0.0635, applies_to: [grading_fees, membership], estimate: true}
+# Whether PSA actually collects CT sales tax on grading services is UNVERIFIED;
+# included by default (conservative), zero it out if the first real invoice shows none.
 ```
 
 Every entry carries `source.url` + `source.date_accessed`. Entries PSA doesn't publish exactly carry `estimate: true` and surface as assumptions in reports.
@@ -187,8 +190,8 @@ Implements exactly the math in the kickoff, restated here as the normative refer
 
 For card *i*: outcomes `G = {7,8,9,10}` plus lumped `below7`; probabilities validated to sum to 1 (tolerance 1e-6, explicit rejection otherwise).
 
-- `V_g` = **net realizable** value at grade g = `gross_g × (1 − sale_friction)`
-- `V_raw` = net realizable ungraded, same friction
+- `V_g` = realizable value at grade g (see the two-view decision below for whether friction is applied)
+- `V_raw` = realizable value ungraded, same treatment
 - `V_below7 = α · V_raw`, **α default 1.0** (a low-grade slab of a well-preserved vintage card resells for roughly its raw value; the slab neither destroys nor meaningfully adds value below 7). Configurable.
 - `C_i = f_i + share_i(S, N)` (see amortization)
 
@@ -199,7 +202,12 @@ Net_gain(i)  = EV_submit(i) − V_raw
 
 **Baseline (decision):** `V_raw` means **"sell raw today"** at the freshest raw snapshot. Hold-and-do-nothing is not modeled as a separate EV branch — it has no cash flow and identical card-value exposure; the **hold** verdict covers "positive but thin/fragile, revisit later." Documented in README.
 
-**Net vs. gross (decision):** snapshots store **gross** values as sources report them; the engine applies a configurable `sale_friction` (default **0.13**, from eBay trading-card final value fee ≈13.25%, exact figure flagged for confirmation) uniformly to every `V_g`, `V_raw`, and hence `V_below7`. One knob, applied consistently, raw source data stays faithful.
+**Two-view model (decision, revised at Gate 0):** snapshots store **gross** values as sources report them, and the engine computes the full analysis twice, once per view:
+
+- **Sticker view** (the headline): `sale_friction = 0` — values exactly as sources report them. This is the number you see first; it answers "at market prices, does grading add value?"
+- **Take-home view** (the breakdown): every `V_g`, `V_raw` (and hence `V_below7`) multiplied by `(1 − sale_friction)`, default **0.13** (eBay trading-card final value fee ≈13.25%; sources conflict slightly, configurable). This answers "if I actually sell on eBay, what lands in my pocket?" Friction is applied uniformly within the view — never mixed.
+
+Each view is internally consistent (same math, one knob differs). Costs `C_i` are identical in both — grading fees don't shrink with marketplace fees, which is exactly why a sticker-view "submit" can be a take-home "don't bother."
 
 **Short-circuit:** if `p_below7 ≥ 0.5` (configurable `below7_short_circuit`), verdict is **don't bother** ("expected grade below 7") with no further modeling; the distribution is still shown.
 
@@ -213,13 +221,15 @@ Batch outputs: total cost / total EV_submit / total Net_gain; per-card marginal 
 
 **Sensitivity:** shocks (defaults, configurable): value ±10% / ±25% (all `V_g` scaled); probability shifts of 5-point mass between adjacent grades (10→9, 9→8, 8→7, 7→below7 and reverse); cost +10% / +25%; batch size N±1 (recomputed shares). Output reports **verdict flip points** — the smallest tested perturbation that changes the verdict — labeling each verdict `robust` (survives ±25% value shock) or `fragile` (flips at ≤10%).
 
-**Verdicts (decision, thresholds configurable in `config.yaml`):**
+**Verdicts (decision, thresholds configurable in `config.yaml`):** computed per view with the same rules —
 
 - **submit** — `Net_gain ≥ min_gain` (default **$20**) **and** robust (survives the ±25% value shock without going ≤ 0) **and** no staleness warnings on used values.
 - **hold** — `Net_gain > 0` but thin (< min_gain), or fragile, or any used snapshot stale.
 - **don't bother** — `Net_gain ≤ 0`, or `p_below7 ≥ 0.5`, or `gross_10 < C_i` (cost floor: even a 10 doesn't pay).
 
-Every verdict is explainable: the report prints inputs (with snapshot dates/sources), the EV arithmetic, `C_i` decomposition, break-even, and the triggering rule.
+The **overall verdict** is the sticker-view verdict when both views agree; when they disagree (e.g., sticker says submit, take-home says don't bother), the overall verdict is **hold** with the disagreement stated as the reason — a decision that flips on marketplace fees is assumption-dependent by definition.
+
+**Report layering (decision, added at Gate 0):** high-level first, detail below. `analyze` prints (1) a one-line-per-card summary table — overall verdict, sticker Net_gain, take-home Net_gain, break-even p₁₀ — plus batch totals; then (2) per-card detail sections with inputs (snapshot dates/sources), the EV arithmetic, `C_i` decomposition, break-even, sensitivity flip points, and the triggering rule for each view. Every verdict is explainable; nothing requires reading the detail to see the answer.
 
 ## 7. AI / deterministic boundary (architecture)
 
@@ -286,9 +296,11 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 
 | Decision | Choice |
 |---|---|
-| Name | `grade-scope` (confirm at gate) |
+| Name | `card-grade-scope` (confirmed at Gate 0) |
 | Stack | Python 3.12 + uv; PyYAML + click; pytest + ruff; Decimal money |
-| Net vs. gross | Snapshots gross; engine applies `sale_friction` (default 0.13) uniformly |
+| Net vs. gross | Two views: sticker (headline, friction 0) and take-home (`sale_friction` default 0.13); overall verdict = sticker unless views disagree → hold |
+| Report shape | Summary table first (verdict + both Net_gains + break-even), per-card detail below |
+| Sales tax | CT 6.35% on grading fees + membership, on by default, marked estimate |
 | α (below-7 fallback) | 1.0, configurable |
 | `V_raw` baseline | Sell raw today; no separate hold branch |
 | Below-7 short-circuit | `p_below7 ≥ 0.5` → don't bother |
@@ -301,15 +313,20 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 | Probability capture | Explicit numbers of record; guided questionnaire proposes, Jake confirms |
 | Snapshot store | Append-only `values.jsonl`; costs as dated YAML books |
 
-## 13. Open questions / UNVERIFIED (for Jake at this gate)
+## 13. Open questions / UNVERIFIED
 
-1. **eBay final value fee for trading cards** — sources conflict (13.25% vs 13.6%); default 0.13. Confirm or set your number. (research/psa-costs-2026.md §8)
-2. **Sales tax on grading fees/membership** — state-dependent; which state should the cost book assume, or ignore tax?
-3. **Membership required to submit at Regular+?** — strong indication no (join page frames membership as bulk access only), but **UNVERIFIED** until the actual submission flow is exercised.
-4. **20+ item return-shipping interpretation** — chart reads as base + $0.39/item over 19; UNVERIFIED against a real submission.
-5. **Inbound shipping+insurance default $25** — estimate; adjust to your carrier preference.
-6. **Signup voucher** — some secondary sources claim a $50 voucher for new Collectors Club members; not on PSA's current page; treated as absent.
-7. **Upcharge trigger thresholds** — PSA doesn't publish exact rules; tool warns on risk only.
-8. **Value-tier reinstatement** — tied to PSA backlog milestone (~Oct 2026 projection). Affects whether "hold until Value Bulk returns" is your dominant strategy for sub-$500 cards; the scenario comparison exists precisely for this.
-9. **Pop-report integration depth** — v1 records pop counts as snapshots and displays them; it does **not** algorithmically adjust the PSA-10 premium. OK?
-10. **Sample collection contents** — I'll invent ~10 synthetic WOTC-era cards with plausible-but-fake values for fixtures/demo. Any preference?
+**Resolved at Gate 0 (Jake, 2026-08-01):**
+
+- Sale friction → two-view model (§6): sticker headline without friction, take-home breakdown with it; default rate 0.13 stands until confirmed against a real sale.
+- Sales tax → assume **Connecticut** (6.35%); applied to grading fees + membership by default, marked estimate (whether PSA collects for CT is UNVERIFIED — check first real invoice).
+- Membership at Regular+ → **not required** (Jake's understanding matches the research indication); modeled as such. Still required for Value Bulk in the `value_restored` scenario.
+- Pop reports → snapshot-and-display only in v1; no algorithmic premium adjustment.
+
+**Still open / UNVERIFIED:**
+
+1. **20+ item return-shipping interpretation** — chart reads as base + $0.39/item over 19; UNVERIFIED against a real submission.
+2. **Inbound shipping+insurance default $25** — estimate; adjust to carrier preference.
+3. **Signup voucher** — some secondary sources claim a $50 voucher for new Collectors Club members; not on PSA's current page; treated as absent.
+4. **Upcharge trigger thresholds** — PSA doesn't publish exact rules; tool warns on risk only.
+5. **Value-tier reinstatement** — tied to PSA backlog milestone (~Oct 2026 projection); the scenario comparison exists precisely for this.
+6. **Sample collection contents** — ~10 synthetic WOTC-era cards with plausible-but-fake values as fixtures/demo, unless Jake prefers otherwise.
