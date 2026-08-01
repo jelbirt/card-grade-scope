@@ -25,7 +25,7 @@ Build the deterministic PSA grading decision engine first (data models → cost/
 
 #### Task 1: Project skeleton, models, and data loading
 
-**Description:** `pyproject.toml` (uv, deps per spec), package layout, `.gitignore` (real data out, `data/costs/` + `data/sample/` in), dataclasses for Card/GradeProbs/ValueSnapshot/CostBook/Batch, YAML/JSONL loaders with explicit validation errors, the real 2026-08-01 cost book generated from research notes, and a ~10-card synthetic sample collection (inventory, probabilities, snapshots, one batch). CLI stub with `gradescope costs` printing the loaded cost book.
+**Description:** `pyproject.toml` (uv, deps per spec), package layout, `.gitignore` (real data out, `data/costs/` + `data/sample/` in), dataclasses for Card/GradeProbs/ValueSnapshot/CostBook/Batch, YAML/JSONL loaders with explicit validation errors, the real 2026-08-01 cost book generated from research notes, and the sample **analysis subset** (~6–10 Next Destinies / Dark Explorers cards per SPEC §4 — e.g. Mewtwo EX full art, Darkrai EX full art, one secret rare, one common — with synthetic condition, probabilities, snapshots, one batch). CLI stub with `gradescope costs` printing the loaded cost book.
 
 **Acceptance criteria:**
 - [ ] `uv run gradescope costs` prints service levels (active + paused flagged), membership, shipping bands, supplies, CT tax from `data/costs/psa-costs-2026-08-01.yaml`
@@ -103,16 +103,16 @@ Build the deterministic PSA grading decision engine first (data models → cost/
 
 ### Phase 2 — Input paths (PR #2)
 
-#### Task 7: CSV bulk import
+#### Task 7: CSV bulk import + full-set checklist fixtures
 
-**Description:** `gradescope import cards.csv` per SPEC §5.6: full-file parse, per-row errors (`row N, column C: message`), enum + slug + duplicate-id checks (in-file and vs inventory), valid rows import with summary, `--strict` aborts all.
+**Description:** `gradescope import cards.csv` per SPEC §5.6: full-file parse, per-row errors (`row N, column C: message`), enum + slug + duplicate-id checks (in-file and vs inventory), valid rows import with summary, `--strict` aborts all. Build the committed fixture CSVs from the complete public checklists of **Next Destinies (103 cards incl. secret rares 100–103/99)** and **Dark Explorers (111 cards incl. 109–111/108: Gardevoir, Archeops, Pokémon Catcher)**, checklist source URLs + access date cited in a fixture header comment (acquisition per AI-boundary rules: read-and-cite from Bulbapedia/TCG Collector, no scraping).
 
 **Acceptance criteria:**
-- [ ] Fixture CSVs exercise every error class; messages match spec format
-- [ ] Mixed valid/invalid file: valid rows land, summary reads `imported X, rejected Y`, exit code nonzero when any rejected
-- [ ] `--strict` writes nothing on any failure
+- [ ] Error-class fixture CSVs exercise every rule; messages match spec format
+- [ ] Mixed valid/invalid file: valid rows land, summary reads `imported X, rejected Y`, exit code nonzero when any rejected; `--strict` writes nothing on any failure
+- [ ] **Full-set validation:** importing both checklist fixtures yields 214/214 imported, zero rejects; per-set counts reported (103 + 111); all seven above-set-size secret-rare numbers pass validation
 
-**Verification:** `uv run pytest tests/test_import.py`; manual import of a sample CSV.
+**Verification:** `uv run pytest tests/test_import.py`; manual: `gradescope import` both fixtures, confirm counts.
 **Dependencies:** Task 1 (spec-frozen by Phase 1 close). **Scope:** M (validate.py, cli, fixtures).
 
 #### Task 8: Guided interactive entry
@@ -169,10 +169,10 @@ Build the deterministic PSA grading decision engine first (data models → cost/
 
 #### Task 12: End-to-end polish and final review
 
-**Description:** Full demo run scripted in README (import sample CSV → analyze batch → compare scenarios), CLI `--help` text pass, error-message consistency sweep, final code-reviewer pass over the whole repo, prune anything dead.
+**Description:** Full demo run scripted in README (import both full-set checklist CSVs → analyze the sample batch → compare scenarios), CLI `--help` text pass, error-message consistency sweep, final code-reviewer pass over the whole repo, prune anything dead.
 
 **Acceptance criteria:**
-- [ ] Fresh-clone demo: `uv sync` → documented commands run clean on sample data only
+- [ ] Fresh-clone demo: `uv sync` → documented commands run clean on sample data only, incl. the 214/214 full-set import
 - [ ] All SPEC §11 success criteria checked off one by one
 - [ ] Review findings fixed or explicitly noted as not-worth-fixing
 

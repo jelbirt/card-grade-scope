@@ -64,6 +64,8 @@ card-grade-scope/
 
 `.gitignore` covers `data/` except `data/costs/` and `data/sample/`. No personal data in the repo; the sample collection makes every command demoable.
 
+**Fixture data (decision, revised at Gate 1):** the committed sample is built from the complete public checklists of **Next Destinies (99 + 4 secret rares = 103 cards)** and **Dark Explorers (108 + 3 secret rares = 111 cards)** — matching the sets Jake actually holds — as CSV import fixtures with checklist sources cited in the files. Set checklists are public data, not personal data. A small analysis subset (~6–10 of those cards, e.g. Mewtwo EX full art, Darkrai EX full art, a secret rare, and a common as a guaranteed don't-bother) gets **synthetic** condition notes, probabilities, and value snapshots for engine fixtures and the demo. Jake's real per-card condition, provenance, probabilities, and value snapshots remain gitignored as before.
+
 ## 5. Data schemas
 
 ### 5.1 Card record (`data/inventory.yaml` — list of cards)
@@ -87,7 +89,9 @@ card-grade-scope/
   date_added: 2026-08-01
 ```
 
-`variant` enum: `first_edition_holo | first_edition | shadowless_holo | shadowless | unlimited_holo | unlimited | reverse_holo | promo | other`. `language`: ISO 639-1. `condition.*` free text (human judgment, feeds guided estimation); `estimated_grade_range` two ints 1–10.
+`variant` enum: `first_edition_holo | first_edition | shadowless_holo | shadowless | unlimited_holo | unlimited | holo | reverse_holo | ex | full_art | secret_rare | promo | other` — covers both WOTC-era and modern (B&W-era) print variants, since Jake's collection includes complete Next Destinies and Dark Explorers sets. `language`: ISO 639-1. `condition.*` free text (human judgment, feeds guided estimation); `estimated_grade_range` two ints 1–10.
+
+**Card numbers:** stored as strings like `"4/102"`; the numerator MAY exceed the denominator (secret rares are numbered beyond the printed set size, e.g. `"103/99"` in Next Destinies, `"111/108"` in Dark Explorers) — validation must accept this.
 
 ### 5.2 Grade probabilities (`data/probabilities.yaml` — keyed by card id)
 
@@ -288,7 +292,7 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 1. `uv run gradescope analyze --batch first-submission` runs offline from local files and produces per-card verdicts with visible arithmetic, break-even, and sensitivity flip points, plus the batch view (totals, marginal classification, tier-minimum flags).
 2. Golden tests pin the math to hand-computed values; green bar passes.
 3. A stranger with Python and the data files reproduces identical numbers with no AI anywhere.
-4. Both input paths work: guided entry (with condition-question prior suggestion) and CSV import (per-row errors, non-silent).
+4. Both input paths work: guided entry (with condition-question prior suggestion) and CSV import (per-row errors, non-silent). Importing the full Next Destinies + Dark Explorers checklist fixtures yields **214/214 cards, zero rejects**, including all seven secret rares with above-set-size numbering.
 5. README explains the AI/deterministic boundary with the diagram, the break-even parameterization, net-vs-gross treatment, and the cost-book refresh procedure.
 6. Repo is portfolio-publishable: synthetic sample data, no personal data, sensible history.
 
@@ -329,4 +333,4 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 3. **Signup voucher** — some secondary sources claim a $50 voucher for new Collectors Club members; not on PSA's current page; treated as absent.
 4. **Upcharge trigger thresholds** — PSA doesn't publish exact rules; tool warns on risk only.
 5. **Value-tier reinstatement** — tied to PSA backlog milestone (~Oct 2026 projection); the scenario comparison exists precisely for this.
-6. **Sample collection contents** — ~10 synthetic WOTC-era cards with plausible-but-fake values as fixtures/demo, unless Jake prefers otherwise.
+6. **Sample collection contents** — RESOLVED (Jake, 2026-08-01): complete Next Destinies + Dark Explorers checklists as import fixtures (public data, sources cited), synthetic analysis subset drawn from them; see §4.

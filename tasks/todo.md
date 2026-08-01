@@ -16,7 +16,7 @@ Source of truth for task detail: [tasks/plan.md](plan.md). Status: awaiting ⛳ 
 - [ ] ⛳ Checkpoint B — PR #1: review pass, hand to Jake (STOP)
 
 ## Phase 2 — Input paths (PR #2)
-- [ ] Task 7: CSV import with per-row errors, `--strict`
+- [ ] Task 7: CSV import with per-row errors, `--strict`; Next Destinies + Dark Explorers checklist fixtures import 214/214
 - [ ] Task 8: Guided entry with condition-questionnaire prior (accept/edit)
 - [ ] Task 9: `snapshot` entry + `validate-snapshots` linter
 - [ ] ⛳ Checkpoint C — PR #2: review pass, hand to Jake (STOP)
