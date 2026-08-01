@@ -40,5 +40,8 @@ def load_jsonl(path: Path) -> list[tuple[int, object]]:
         for lineno, line in enumerate(fh, start=1):
             if not line.strip():
                 continue
-            rows.append((lineno, json.loads(line, parse_float=Decimal)))
+            try:
+                rows.append((lineno, json.loads(line, parse_float=Decimal)))
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"line {lineno}: not valid JSON ({exc.msg})") from exc
     return rows

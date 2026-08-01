@@ -7,7 +7,8 @@ from pathlib import Path
 import click
 
 from gradescope import paths, report
-from gradescope.engine import EngineConfig, analyze_batch, analyze_standalone
+from gradescope.config import load_config
+from gradescope.engine import analyze_batch, analyze_standalone
 from gradescope.validate import (
     ValidationError,
     load_batch,
@@ -67,6 +68,13 @@ def main() -> None:
     default=False,
     help="Batch mode: show summary tables for both pricing scenarios side by side.",
 )
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Config YAML overriding engine defaults (default: config.yaml at repo root, if present).",
+)
 def analyze(
     card_id: str | None,
     batch_name: str | None,
@@ -76,6 +84,7 @@ def analyze(
     as_of,
     membership_held: bool,
     compare_scenarios: bool,
+    config_path: Path | None,
 ) -> None:
     """Analyze one card standalone (--card) or a whole submission (--batch)."""
     if (card_id is None) == (batch_name is None):
@@ -84,7 +93,10 @@ def analyze(
     # Staleness is measured against the operator's local calendar date, which is
     # exactly date.today(); pass --as-of for reproducible runs.
     as_of_date = as_of.date() if as_of else date.today()  # noqa: DTZ011
-    config = EngineConfig()
+    try:
+        config = load_config(config_path or paths.repo_root() / "config.yaml")
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
     try:
         inventory = load_inventory(data / "inventory.yaml")
         probs = load_probabilities(data / "probabilities.yaml")
