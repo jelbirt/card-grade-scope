@@ -30,7 +30,9 @@ from gradescope.models import (
 )
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-CARD_NUMBER_RE = re.compile(r"^\d+(/\d+)?[a-zA-Z]?$")  # "4/102", "103/99" (secret rares), "SM210"
+# "4/102", "103/99" (secret rares above set size), "SM210" / "SWSH010" (promos),
+# "TG01/TG30" (trainer gallery subsets)
+CARD_NUMBER_RE = re.compile(r"^[A-Za-z]*\d+(/[A-Za-z]*\d+)?[A-Za-z]?$")
 LANGUAGE_RE = re.compile(r"^[a-z]{2}$")
 
 
@@ -429,11 +431,24 @@ def load_cost_book(path: Path) -> CostBook:
     t = raw.get("sales_tax")
     if isinstance(t, dict):
         rate = _as_money(_need(t, "rate", errors, path, "sales_tax"), errors, path, "sales_tax")
-        if rate is not None:
+        applies_to = tuple(t.get("applies_to") or ())
+        known_tax_targets = {"grading_fees", "membership"}
+        unknown_targets = [a for a in applies_to if a not in known_tax_targets]
+        if unknown_targets:
+            errors.append(
+                _ctx(
+                    path,
+                    "sales_tax",
+                    f"unknown applies_to values {unknown_targets} "
+                    f"(known: {sorted(known_tax_targets)}) — a typo here would silently "
+                    "zero the tax",
+                )
+            )
+        if rate is not None and not unknown_targets:
             tax = SalesTax(
                 state=str(t.get("state", "")),
                 rate=rate,
-                applies_to=tuple(t.get("applies_to") or ()),
+                applies_to=applies_to,
                 estimate=bool(t.get("estimate", True)),
             )
 
@@ -441,6 +456,14 @@ def load_cost_book(path: Path) -> CostBook:
         errors.append(_ctx(path, "service_levels", "no valid service levels"))
     if not bands:
         errors.append(_ctx(path, "return_shipping", "no valid bands"))
+    if any(lvl.membership_required for lvl in levels) and not tiers:
+        errors.append(
+            _ctx(
+                path,
+                "membership",
+                "a service level requires membership but no membership tiers are defined",
+            )
+        )
     if errors or date_accessed is None or inbound is None or supplies is None:
         raise ValidationError(errors or [_ctx(path, "meta", "missing date_accessed")])
     return CostBook(

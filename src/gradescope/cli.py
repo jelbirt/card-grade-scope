@@ -45,9 +45,10 @@ def main() -> None:
 @click.option(
     "--scenario",
     type=click.Choice(["current", "value_restored"]),
-    default="current",
-    show_default=True,
-    help="Pricing scenario (value_restored treats paused tiers as orderable).",
+    default=None,
+    help="Pricing scenario (value_restored treats paused tiers as orderable). "
+    "Default: 'current' for --card; the batch file's pricing_scenario for --batch. "
+    "Passing it in batch mode overrides the batch file.",
 )
 @click.option(
     "--as-of",
@@ -128,7 +129,7 @@ def analyze(
                 probs[card_id],
                 values,
                 book,
-                scenario,
+                scenario or "current",
                 config,
                 as_of_date,
                 membership_already_held=membership_held,
@@ -140,6 +141,8 @@ def analyze(
         if not batch_path.exists():
             raise ValidationError([f"no batch file {batch_path}"])
         batch = load_batch(batch_path, inventory)
+        if scenario is not None:
+            batch = replace(batch, pricing_scenario=scenario)
         missing_probs = [c for c in batch.card_ids if c not in probs]
         if missing_probs:
             raise ValidationError([f"no grade probabilities for: {', '.join(missing_probs)}"])

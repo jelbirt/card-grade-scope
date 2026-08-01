@@ -155,3 +155,70 @@ def test_as_of_before_snapshots_not_stale():
     snaps = load_snapshots(paths.repo_root() / "data" / "sample" / "values.jsonl")
     values = freshest_values(snaps, ["nd-54-mewtwo-ex-full-art"])["nd-54-mewtwo-ex-full-art"]
     assert values.stale_kinds(date(2026, 1, 1), 90) == []
+
+
+# ------------------------------------------------- review-pass regressions
+
+
+def test_scenario_flag_applies_in_batch_mode():
+    """Review finding 1: --scenario was silently ignored with --batch."""
+    from click.testing import CliRunner
+
+    from gradescope.cli import main
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "analyze",
+            "--batch",
+            "demo",
+            "--scenario",
+            "value_restored",
+            "--as-of",
+            "2026-08-01",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "scenario value_restored" in result.output
+
+
+def test_membership_required_without_tiers_rejected(tmp_path):
+    """Review finding 2: bare min() crash replaced by an explicit error."""
+    book_text = (paths.repo_root() / "data" / "costs" / "psa-costs-2026-08-01.yaml").read_text(
+        encoding="utf-8"
+    )
+    lines = book_text.splitlines()
+    start = lines.index("membership:")
+    end = next(i for i in range(start + 1, len(lines)) if not lines[i].startswith(("  ", "-")))
+    stripped = "\n".join(lines[:start] + lines[end:])
+    p = tmp_path / "book.yaml"
+    p.write_text(stripped, encoding="utf-8")
+    from gradescope.validate import load_cost_book
+
+    with pytest.raises(ValidationError) as exc:
+        load_cost_book(p)
+    assert "requires membership but no membership tiers" in str(exc.value)
+
+
+def test_sales_tax_typo_rejected(tmp_path):
+    """Review finding 3: a typo in applies_to must not silently zero the tax."""
+    book_text = (paths.repo_root() / "data" / "costs" / "psa-costs-2026-08-01.yaml").read_text(
+        encoding="utf-8"
+    )
+    p = tmp_path / "book.yaml"
+    p.write_text(book_text.replace("[grading_fees, membership]", "[grading_fee]"), encoding="utf-8")
+    from gradescope.validate import load_cost_book
+
+    with pytest.raises(ValidationError) as exc:
+        load_cost_book(p)
+    assert "unknown applies_to values" in str(exc.value)
+
+
+def test_card_number_formats_accepted():
+    """Review finding 4: promo/subset numbering formats validate."""
+    from gradescope.validate import CARD_NUMBER_RE
+
+    for ok in ("4/102", "103/99", "111/108", "SM210", "SWSH010", "TG01/TG30"):
+        assert CARD_NUMBER_RE.match(ok), ok
+    for bad in ("", "abc", "4/", "/99", "4//99"):
+        assert not CARD_NUMBER_RE.match(bad), bad
