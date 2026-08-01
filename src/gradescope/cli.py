@@ -1,17 +1,107 @@
 """CLI entry point. Subcommands land per tasks/plan.md."""
 
+from datetime import date
 from pathlib import Path
 
 import click
 
-from gradescope import paths
-from gradescope.validate import ValidationError, load_cost_book
+from gradescope import paths, report
+from gradescope.engine import EngineConfig, analyze_standalone
+from gradescope.validate import (
+    ValidationError,
+    load_cost_book,
+    load_inventory,
+    load_probabilities,
+    load_snapshots,
+)
+from gradescope.values import freshest_values
 
 
 @click.group()
 @click.version_option()
 def main() -> None:
     """PSA grading decision-support: is this card worth grading?"""
+
+
+@main.command()
+@click.option("--card", "card_id", required=True, help="Card id from the inventory.")
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Data directory (default: data/ if real data exists, else data/sample/).",
+)
+@click.option(
+    "--cost-book",
+    "cost_book_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Cost book YAML (default: newest in data/costs/).",
+)
+@click.option(
+    "--scenario",
+    type=click.Choice(["current", "value_restored"]),
+    default="current",
+    show_default=True,
+    help="Pricing scenario (value_restored treats paused tiers as orderable).",
+)
+@click.option(
+    "--as-of",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Reference date for staleness (default: today).",
+)
+@click.option(
+    "--membership-held/--no-membership-held",
+    default=False,
+    show_default=True,
+    help="Whether a Collectors Club membership is already paid for.",
+)
+def analyze(
+    card_id: str,
+    data_dir: Path | None,
+    cost_book_path: Path | None,
+    scenario: str,
+    as_of,
+    membership_held: bool,
+) -> None:
+    """Analyze one card standalone (a batch of one). Batch mode lands in Task 4."""
+    data = data_dir or paths.default_data_dir()
+    # Staleness is measured against the operator's local calendar date, which is
+    # exactly date.today(); pass --as-of for reproducible runs.
+    as_of_date = as_of.date() if as_of else date.today()  # noqa: DTZ011
+    try:
+        inventory = load_inventory(data / "inventory.yaml")
+        if card_id not in inventory:
+            raise ValidationError(
+                [
+                    (
+                        f"card {card_id!r} not in {data / 'inventory.yaml'} "
+                        f"(known: {', '.join(sorted(inventory))})"
+                    )
+                ]
+            )
+        probs = load_probabilities(data / "probabilities.yaml")
+        if card_id not in probs:
+            raise ValidationError(
+                [f"card {card_id!r} has no grade probabilities in {data / 'probabilities.yaml'}"]
+            )
+        snapshots = load_snapshots(data / "values.jsonl")
+        values = freshest_values(snapshots, [card_id])[card_id]
+        book = load_cost_book(cost_book_path or paths.newest_cost_book())
+        analysis = analyze_standalone(
+            card_id,
+            probs[card_id],
+            values,
+            book,
+            scenario,
+            EngineConfig(),
+            as_of_date,
+            membership_already_held=membership_held,
+        )
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(report.render_card_detail(analysis))
 
 
 @main.command()
