@@ -1,9 +1,11 @@
 # card-grade-scope — task checklist
 
-Source of truth for task detail: [tasks/plan.md](plan.md). Status: awaiting ⛳ Gate 1 approval.
+Source of truth for task detail: [tasks/plan.md](plan.md). Status: Gate 1 approved; building Phase 1.
 
-## Scaffold (after plan approval)
-- [ ] Run repo-adopt (checks.sh, commit guard, PR template, repo CLAUDE.md); ask Jake before any GitHub remote
+Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md). No GitHub remote yet — ask Jake at PR #1 handoff.
+
+## Scaffold
+- [x] Run repo-adopt (checks.sh, commit guard, worktree scripts, CI, PR template, repo CLAUDE.md)
 
 ## Phase 1 — Deterministic core (PR #1)
 - [ ] Task 1: Project skeleton, models, data loading, real cost book, sample collection, `gradescope costs`

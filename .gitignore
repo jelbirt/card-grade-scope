@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+
+# Real collection data — never committed (see SPEC.md §4).
+# Committed exceptions: cost books (public info) and the synthetic sample fixture.
+data/*
+!data/costs/
+!data/sample/
