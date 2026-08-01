@@ -1,0 +1,79 @@
+# SYNTHETIC sample collection (SPEC §4): real cards from Next Destinies /
+# Dark Explorers checklists, but condition notes, grade estimates, and all
+# values are invented fixture data. Not purchase advice; not Jake's data.
+- id: nd-54-mewtwo-ex-full-art
+  name: Mewtwo EX
+  set_name: Next Destinies
+  card_number: "98/99"
+  variant: full_art
+  language: en
+  condition:
+    centering: "55/45 front"
+    corners: "sharp all four"
+    edges: "clean"
+    surface: "no visible print lines"
+  estimated_grade_range: [8, 10]
+  provenance: synthetic demo card
+  date_added: 2026-08-01
+- id: de-63-darkrai-ex-full-art
+  name: Darkrai EX
+  set_name: Dark Explorers
+  card_number: "107/108"
+  variant: full_art
+  language: en
+  condition:
+    centering: "60/40 front"
+    corners: "one soft corner rear"
+    surface: "light texture wear under glare"
+  estimated_grade_range: [7, 9]
+  provenance: synthetic demo card
+  date_added: 2026-08-01
+- id: de-111-pokemon-catcher-secret
+  name: Pokemon Catcher
+  set_name: Dark Explorers
+  card_number: "111/108"
+  variant: secret_rare
+  language: en
+  condition:
+    centering: "near-centered"
+    corners: "sharp"
+    edges: "clean"
+    surface: "clean"
+  estimated_grade_range: [8, 10]
+  provenance: synthetic demo card
+  date_added: 2026-08-01
+- id: nd-99-emboar-secret
+  name: Emboar
+  set_name: Next Destinies
+  card_number: "100/99"
+  variant: secret_rare
+  language: en
+  condition:
+    centering: "65/35 front"
+    corners: "minor whitening one corner"
+  estimated_grade_range: [7, 8]
+  provenance: synthetic demo card
+  date_added: 2026-08-01
+- id: nd-1-deerling-common
+  name: Deerling
+  set_name: Next Destinies
+  card_number: "11/99"
+  variant: unlimited
+  language: en
+  condition:
+    corners: "sharp"
+  estimated_grade_range: [8, 9]
+  provenance: synthetic demo card — guaranteed don't-bother
+  date_added: 2026-08-01
+- id: de-46-zoroark-holo
+  name: Zoroark
+  set_name: Dark Explorers
+  card_number: "71/108"
+  variant: holo
+  language: en
+  condition:
+    centering: "55/45"
+    surface: "one faint holo scratch"
+  estimated_grade_range: [8, 9]
+  provenance: synthetic demo card
+  date_added: 2026-08-01
