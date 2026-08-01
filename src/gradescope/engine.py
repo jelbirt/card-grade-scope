@@ -1,13 +1,13 @@
 """The deterministic decision engine (SPEC §6). Stdlib math only.
 
-Verdicts here are PROVISIONAL until the sensitivity task lands (tasks/plan.md
-Task 5): the robustness input to submit/hold and the staleness downgrade are
-wired there. Reasons are explicit strings so every verdict is explainable.
+Verdicts are sensitivity-aware: a base-rule "submit" is downgraded to "hold"
+when it is not robust under the value-shock grid or when its inputs are stale.
+Reasons are explicit strings so every verdict is explainable.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
@@ -28,6 +28,12 @@ class EngineConfig:
     min_gain: Decimal = Decimal(20)
     below7_short_circuit: Decimal = Decimal("0.5")
     staleness_days: int = 90
+    # Sensitivity shocks (SPEC §6). Value shocks scale the graded-outcome
+    # values V_7..V_10 only (the slab premium is the estimate most likely to
+    # be wrong); V_raw and hence V_below7 stay fixed.
+    value_shocks: tuple[Decimal, ...] = (Decimal("0.10"), Decimal("0.25"))
+    prob_shift: Decimal = Decimal("0.05")
+    cost_shocks: tuple[Decimal, ...] = (Decimal("0.10"), Decimal("0.25"))
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,24 @@ class BreakEven:
 
 
 @dataclass(frozen=True)
+class FlipPoint:
+    """The smallest tested perturbation in one category that changes the
+    base-rule verdict (SPEC §6: flip points, not just recomputed numbers)."""
+
+    category: str  # value | prob | cost
+    description: str
+    new_verdict: str
+    shocked_gain: Decimal
+
+
+@dataclass(frozen=True)
+class ViewSensitivity:
+    robustness: str  # robust | sensitive | fragile
+    flips: tuple[FlipPoint, ...]
+    min_gain_under_value_shocks: Decimal
+
+
+@dataclass(frozen=True)
 class ViewResult:
     """One internally-consistent view: sticker (friction 0) or take-home."""
 
@@ -60,9 +84,11 @@ class ViewResult:
     ev_graded: Decimal  # sum p_g * V_g + p_below7 * V_below7
     ev_submit: Decimal
     net_gain: Decimal
-    verdict: str  # submit | hold | dont_bother
+    verdict: str  # submit | hold | dont_bother (final, sensitivity-aware)
     reason: str
     breakeven: BreakEven
+    base_verdict: str = ""  # rule verdict before robustness/staleness downgrades
+    sensitivity: ViewSensitivity | None = None
 
 
 @dataclass(frozen=True)
@@ -141,29 +167,9 @@ def _view(
     ev_submit = ev_graded - cost_total
     net_gain = ev_submit - net_raw
     breakeven = solve_breakeven(probs, net_by_grade, net_below7, net_raw, cost_total)
-
-    if short_circuited:
-        verdict, reason = (
-            "dont_bother",
-            f"expected grade below 7 (p_below7={probs.p_below7} >= {config.below7_short_circuit})",
-        )
-    elif net_by_grade[10] < cost_total:
-        verdict, reason = (
-            "dont_bother",
-            (
-                f"cost floor: even a PSA 10 ({_fmt(net_by_grade[10])}) is below the "
-                f"cost {_fmt(cost_total)}"
-            ),
-        )
-    elif net_gain <= ZERO:
-        verdict, reason = ("dont_bother", f"net gain {_fmt(net_gain)} is not positive")
-    elif net_gain < config.min_gain:
-        verdict, reason = (
-            "hold",
-            f"net gain {_fmt(net_gain)} is positive but under the ${config.min_gain} threshold",
-        )
-    else:
-        verdict, reason = ("submit", f"net gain {_fmt(net_gain)} clears ${config.min_gain}")
+    verdict, reason = _rule_verdict(
+        net_gain, net_by_grade[10], cost_total, probs, config, short_circuited
+    )
     return ViewResult(
         name=name,
         friction=friction,
@@ -176,7 +182,201 @@ def _view(
         verdict=verdict,
         reason=reason,
         breakeven=breakeven,
+        base_verdict=verdict,
     )
+
+
+def _rule_verdict(
+    net_gain: Decimal,
+    net_v10: Decimal,
+    cost_total: Decimal,
+    probs: GradeProbs,
+    config: EngineConfig,
+    short_circuited: bool,
+) -> tuple[str, str]:
+    """The base decision rule (SPEC §6), before robustness/staleness downgrades."""
+    if short_circuited:
+        return (
+            "dont_bother",
+            f"expected grade below 7 (p_below7={probs.p_below7} >= {config.below7_short_circuit})",
+        )
+    if net_v10 < cost_total:
+        return (
+            "dont_bother",
+            f"cost floor: even a PSA 10 ({_fmt(net_v10)}) is below the cost {_fmt(cost_total)}",
+        )
+    if net_gain <= ZERO:
+        return ("dont_bother", f"net gain {_fmt(net_gain)} is not positive")
+    if net_gain < config.min_gain:
+        return (
+            "hold",
+            f"net gain {_fmt(net_gain)} is positive but under the ${config.min_gain} threshold",
+        )
+    return ("submit", f"net gain {_fmt(net_gain)} clears ${config.min_gain}")
+
+
+def _shocked_gain_and_verdict(
+    probs: GradeProbs,
+    net_by_grade: dict[int, Decimal],
+    net_below7: Decimal,
+    net_raw: Decimal,
+    cost_total: Decimal,
+    config: EngineConfig,
+    *,
+    value_scale: Decimal = ONE,
+    cost_scale: Decimal = ONE,
+) -> tuple[Decimal, str]:
+    """Recompute net gain and rule verdict under one shock (possibly shifted probs)."""
+    graded = {g: net_by_grade[g] * value_scale for g in GRADES}
+    ev = sum((probs.p(g) * graded[g] for g in GRADES), ZERO) + probs.p_below7 * net_below7
+    cost = cost_total * cost_scale
+    gain = ev - cost - net_raw
+    short = probs.p_below7 >= config.below7_short_circuit
+    verdict, _ = _rule_verdict(gain, graded[10], cost, probs, config, short)
+    return gain, verdict
+
+
+ADJACENT_SHIFTS = (
+    (10, 9),
+    (9, 8),
+    (8, 7),
+    (7, "below7"),
+)
+
+
+def _shifted_probs(
+    probs: GradeProbs, src: int | str, dst: int | str, delta: Decimal
+) -> GradeProbs | None:
+    """Move delta mass src -> dst; None if src lacks the mass (skip, don't clamp)."""
+    p = {
+        7: probs.p7,
+        8: probs.p8,
+        9: probs.p9,
+        10: probs.p10,
+        "below7": probs.p_below7,
+    }
+    if p[src] < delta:
+        return None
+    p[src] -= delta
+    p[dst] += delta
+    return GradeProbs(
+        p7=p[7], p8=p[8], p9=p[9], p10=p[10], p_below7=p["below7"], method=probs.method
+    )
+
+
+def _view_sensitivity(view: ViewResult, probs: GradeProbs, config: EngineConfig) -> ViewSensitivity:
+    """Shock grid for one view. Robustness labels:
+    robust    — no tested shock changes the base-rule verdict
+    fragile   — a 10%-magnitude shock (or a single 0.05 prob shift) flips it
+    sensitive — flips somewhere between the smallest and largest shocks
+    """
+    cost_total = view.ev_graded - view.ev_submit
+    flips: list[FlipPoint] = []
+    value_gains: list[Decimal] = []
+    smallest_value_shock = min(config.value_shocks)
+    fragile = False
+
+    def record(category: str, description: str, gain: Decimal, verdict: str, small: bool) -> None:
+        nonlocal fragile
+        if verdict != view.base_verdict:
+            flips.append(
+                FlipPoint(
+                    category=category,
+                    description=description,
+                    new_verdict=verdict,
+                    shocked_gain=gain,
+                )
+            )
+            if small:
+                fragile = True
+
+    for magnitude in sorted(config.value_shocks):
+        for sign in (Decimal(-1), Decimal(1)):
+            scale = ONE + sign * magnitude
+            gain, verdict = _shocked_gain_and_verdict(
+                probs,
+                view.net_by_grade,
+                view.net_below7,
+                view.net_raw,
+                cost_total,
+                config,
+                value_scale=scale,
+            )
+            value_gains.append(gain)
+            pct = (sign * magnitude * 100).quantize(Decimal(1))
+            record(
+                "value",
+                f"graded values {'+' if sign > 0 else ''}{pct}%",
+                gain,
+                verdict,
+                small=magnitude == smallest_value_shock,
+            )
+
+    delta = config.prob_shift
+    for src, dst in ADJACENT_SHIFTS:
+        for a, b in ((src, dst), (dst, src)):
+            shifted = _shifted_probs(probs, a, b, delta)
+            if shifted is None:
+                continue
+            gain, verdict = _shocked_gain_and_verdict(
+                shifted,
+                view.net_by_grade,
+                view.net_below7,
+                view.net_raw,
+                cost_total,
+                config,
+            )
+            record("prob", f"shift {delta} mass {a}->{b}", gain, verdict, small=True)
+
+    for magnitude in sorted(config.cost_shocks):
+        gain, verdict = _shocked_gain_and_verdict(
+            probs,
+            view.net_by_grade,
+            view.net_below7,
+            view.net_raw,
+            cost_total,
+            config,
+            cost_scale=ONE + magnitude,
+        )
+        pct = (magnitude * 100).quantize(Decimal(1))
+        record(
+            "cost",
+            f"costs +{pct}%",
+            gain,
+            verdict,
+            small=magnitude == min(config.cost_shocks),
+        )
+
+    robustness = "robust" if not flips else ("fragile" if fragile else "sensitive")
+    return ViewSensitivity(
+        robustness=robustness,
+        flips=tuple(flips),
+        min_gain_under_value_shocks=min(value_gains) if value_gains else view.net_gain,
+    )
+
+
+def _finalize_view(
+    view: ViewResult, probs: GradeProbs, config: EngineConfig, stale_kinds: list[str]
+) -> ViewResult:
+    """Apply the sensitivity-aware verdict rules (SPEC §6): a base-rule submit
+    must be robust under +/-25% value shocks and free of stale inputs."""
+    sens = _view_sensitivity(view, probs, config)
+    verdict, reason = view.base_verdict, view.reason
+    if view.base_verdict == "submit":
+        if sens.min_gain_under_value_shocks <= ZERO:
+            verdict = "hold"
+            reason = (
+                f"positive ({_fmt(view.net_gain)}) but not robust: net gain falls to "
+                f"{_fmt(sens.min_gain_under_value_shocks)} within the +/-"
+                f"{max(config.value_shocks) * 100}% value shocks"
+            )
+        elif stale_kinds:
+            verdict = "hold"
+            reason = (
+                f"positive and robust, but stale snapshots ({', '.join(stale_kinds)}) — "
+                f"refresh values older than {config.staleness_days} days before submitting"
+            )
+    return replace(view, verdict=verdict, reason=reason, sensitivity=sens)
 
 
 def _fmt(amount: Decimal) -> str:
@@ -204,8 +404,11 @@ def analyze_card(
     short = probs.p_below7 >= config.below7_short_circuit
     upcharge_risk = values.gross("psa10") > tier.max_declared_value
 
+    stale = values.stale_kinds(as_of, config.staleness_days)
     sticker = _view("sticker", ZERO, probs, values, cost.total, config, short)
     take_home = _view("take_home", config.sale_friction, probs, values, cost.total, config, short)
+    sticker = _finalize_view(sticker, probs, config, stale)
+    take_home = _finalize_view(take_home, probs, config, stale)
 
     if sticker.verdict == take_home.verdict:
         overall, why = sticker.verdict, sticker.reason
@@ -215,7 +418,6 @@ def analyze_card(
             f"views disagree (sticker: {sticker.verdict}, take-home: {take_home.verdict}) — "
             "the decision flips on marketplace fees, so it is assumption-dependent"
         )
-    stale = values.stale_kinds(as_of, config.staleness_days)
     return CardAnalysis(
         card_id=card_id,
         probs=probs,

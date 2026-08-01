@@ -36,6 +36,20 @@ def render_view(view: ViewResult, analysis: CardAnalysis) -> list[str]:
         f" = {money(view.net_gain)}"
     )
     lines.append(f"    Verdict    = {VERDICT_LABEL[view.verdict]} — {view.reason}")
+    sens = view.sensitivity
+    if sens is not None:
+        if not sens.flips:
+            lines.append(
+                "    Sensitivity= robust — no tested shock (values ±25%, ±0.05 prob shifts, "
+                "costs +25%) changes the verdict"
+            )
+        else:
+            first = sens.flips[0]
+            lines.append(
+                f"    Sensitivity= {sens.robustness} — smallest flip: {first.description} "
+                f"-> {VERDICT_LABEL[first.new_verdict]} (net gain {money(first.shocked_gain)}); "
+                f"min gain under value shocks {money(sens.min_gain_under_value_shocks)}"
+            )
     be = view.breakeven
     if be.kind == "threshold":
         pct = (be.p10_min * 100).quantize(Decimal("0.1"))
@@ -105,9 +119,40 @@ CATEGORY_LABEL = {
 }
 
 
-def render_batch(result: BatchAnalysis) -> str:
-    """Batch report: totals + shared pool + marginal classification + flags,
-    then per-card detail. (Summary-table layering is finalized in Task 5.)"""
+def render_summary_table(result: BatchAnalysis) -> list[str]:
+    """One line per card: everything needed to act, no detail required (SPEC §6)."""
+    header = (
+        f"  {'card':<32} {'verdict':<13} {'sticker':>10} {'take-home':>10} "
+        f"{'BE p10':>7} {'robust':>10} flags"
+    )
+    lines = [header, "  " + "-" * (len(header) - 2)]
+    for a in result.analyses:
+        be = a.sticker.breakeven
+        if be.kind == "threshold":
+            be_txt = f"{(be.p10_min * 100).quantize(Decimal('0.1'))}%"
+        else:
+            be_txt = {"never": "never", "always": "any", "inverse": "n/a"}[be.kind]
+        flags = []
+        if a.stale_kinds:
+            flags.append("STALE")
+        if a.upcharge_risk:
+            flags.append("UPCHARGE?")
+        lines.append(
+            f"  {a.card_id:<32} {VERDICT_LABEL[a.overall_verdict]:<13} "
+            f"{money(a.sticker.net_gain):>10} {money(a.take_home.net_gain):>10} "
+            f"{be_txt:>7} {a.sticker.sensitivity.robustness:>10} {' '.join(flags)}"
+        )
+    lines.append("  " + "-" * (len(header) - 2))
+    lines.append(
+        f"  {'TOTAL':<32} {'':<13} {money(result.total_net_gain['sticker']):>10} "
+        f"{money(result.total_net_gain['take_home']):>10}   (batch cost {money(result.total_cost)})"
+    )
+    return lines
+
+
+def render_batch(result: BatchAnalysis, detail: bool = True) -> str:
+    """Batch report, summary first: verdict table + totals + marginal
+    classification + flags; per-card detail below (nothing requires it)."""
     b = result.batch
     lines = [
         (
@@ -115,6 +160,8 @@ def render_batch(result: BatchAnalysis) -> str:
             f"membership {'already held' if b.membership_already_held else 'not held'}"
         )
     ]
+    lines.extend(render_summary_table(result))
+    lines.append("")
     lines.append("  shared costs (split flat across the batch):")
     for label, amount in result.shared.lines.items():
         lines.append(f"    {label}: {money(amount)}")
@@ -136,8 +183,9 @@ def render_batch(result: BatchAnalysis) -> str:
         )
     for flag in result.tier_minimum_flags:
         lines.append(f"  NOTE: {flag}")
-    lines.append("")
-    for analysis in result.analyses:
-        lines.append(render_card_detail(analysis))
+    if detail:
         lines.append("")
+        for analysis in result.analyses:
+            lines.append(render_card_detail(analysis))
+            lines.append("")
     return "\n".join(lines)

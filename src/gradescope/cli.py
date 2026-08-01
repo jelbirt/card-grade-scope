@@ -1,5 +1,6 @@
 """CLI entry point. Subcommands land per tasks/plan.md."""
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -57,7 +58,14 @@ def main() -> None:
     "--membership-held/--no-membership-held",
     default=False,
     show_default=True,
-    help="Whether a Collectors Club membership is already paid for.",
+    help="--card mode only: membership already paid for. (Batch files carry "
+    "their own membership_already_held.)",
+)
+@click.option(
+    "--compare-scenarios",
+    is_flag=True,
+    default=False,
+    help="Batch mode: show summary tables for both pricing scenarios side by side.",
 )
 def analyze(
     card_id: str | None,
@@ -67,6 +75,7 @@ def analyze(
     scenario: str,
     as_of,
     membership_held: bool,
+    compare_scenarios: bool,
 ) -> None:
     """Analyze one card standalone (--card) or a whole submission (--batch)."""
     if (card_id is None) == (batch_name is None):
@@ -123,6 +132,17 @@ def analyze(
         if missing_probs:
             raise ValidationError([f"no grade probabilities for: {', '.join(missing_probs)}"])
         values_map = freshest_values(snapshots, list(batch.card_ids))
+        if compare_scenarios:
+            for scen in ("current", "value_restored"):
+                variant = replace(batch, pricing_scenario=scen)
+                result = analyze_batch(variant, probs, values_map, book, config, as_of_date)
+                click.echo(report.render_batch(result, detail=False))
+                click.echo()
+            click.echo(
+                "(value_restored is HYPOTHETICAL: Value tiers are paused for new "
+                "submissions since 2026-06-02; see the cost book sources.)"
+            )
+            return
         result = analyze_batch(batch, probs, values_map, book, config, as_of_date)
         click.echo(report.render_batch(result))
     except ValidationError as exc:

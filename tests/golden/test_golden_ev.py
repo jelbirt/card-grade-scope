@@ -84,12 +84,16 @@ def test_golden_mewtwo_standalone_current(book, sample_values, sample_probs):
     assert a.sticker.ev_graded == Decimal("250.50")
     assert a.sticker.ev_submit == Decimal("112.140635")
     assert a.sticker.net_gain == Decimal("22.140635")
-    assert a.sticker.verdict == "submit"
+    # Task 5 finalization (the one deliberate golden update): the base rule
+    # says submit, but a -10% graded-value shock swings EV by 24.60 and turns
+    # the gain negative, so the sensitivity-aware verdict is HOLD.
+    assert a.sticker.base_verdict == "submit"
+    assert a.sticker.verdict == "hold"
+    assert "not robust" in a.sticker.reason
     assert a.take_home.ev_graded == Decimal("217.9350")
     assert a.take_home.net_gain == Decimal("1.275635")
     assert a.take_home.verdict == "hold"
     assert a.overall_verdict == "hold"
-    assert "views disagree" in a.overall_reason
     assert not a.upcharge_risk  # 750 <= 1500
     assert not a.stale_kinds  # observed 2026-07-20, as-of 2026-08-01, threshold 90d
 
