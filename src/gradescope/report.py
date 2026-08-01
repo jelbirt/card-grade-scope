@@ -36,6 +36,22 @@ def render_view(view: ViewResult, analysis: CardAnalysis) -> list[str]:
         f" = {money(view.net_gain)}"
     )
     lines.append(f"    Verdict    = {VERDICT_LABEL[view.verdict]} — {view.reason}")
+    be = view.breakeven
+    if be.kind == "threshold":
+        pct = (be.p10_min * 100).quantize(Decimal("0.1"))
+        lines.append(
+            f"    Break-even = worth submitting only if you believe there's at least a "
+            f"{pct}% chance of a PSA 10 (holding the non-top mix fixed)"
+        )
+    elif be.kind == "never":
+        lines.append("    Break-even = never breaks even at current values and costs")
+    elif be.kind == "always":
+        lines.append("    Break-even = positive regardless of the PSA 10 chance")
+    else:
+        lines.append(
+            "    Break-even = gain falls as p10 rises (PSA 10 value below the non-top mix EV) "
+            "— check the value snapshots"
+        )
     return lines
 
 

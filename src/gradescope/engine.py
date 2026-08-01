@@ -31,6 +31,24 @@ class EngineConfig:
 
 
 @dataclass(frozen=True)
+class BreakEven:
+    """Minimum p10 for Net_gain >= 0, holding the relative proportions of the
+    non-top outcomes {7, 8, 9, below7} fixed and redistributing (SPEC §6).
+
+    With non-top conditional EV A = (sum of non-top p_g * V_g) / (1 - p10),
+    Net_gain(t) = (1-t)*A + t*V10 - C - V_raw is linear in the top mass t:
+      kind "threshold": t* = (C + V_raw - A) / (V10 - A), in (0, 1]
+      kind "always":    Net_gain >= 0 even at t = 0
+      kind "never":     Net_gain < 0 even at t = 1
+      kind "inverse":   gain falls as p10 rises (V10 below the non-top mix EV);
+                        pathological data — reported, never used as a threshold
+    """
+
+    kind: str  # threshold | always | never | inverse
+    p10_min: Decimal | None = None
+
+
+@dataclass(frozen=True)
 class ViewResult:
     """One internally-consistent view: sticker (friction 0) or take-home."""
 
@@ -44,6 +62,7 @@ class ViewResult:
     net_gain: Decimal
     verdict: str  # submit | hold | dont_bother
     reason: str
+    breakeven: BreakEven
 
 
 @dataclass(frozen=True)
@@ -68,6 +87,42 @@ def declared_value(probs: GradeProbs, values: CardValues, alpha: Decimal) -> Dec
     return graded + probs.p_below7 * alpha * values.gross("raw")
 
 
+def solve_breakeven(
+    probs: GradeProbs,
+    net_by_grade: dict[int, Decimal],
+    net_below7: Decimal,
+    net_raw: Decimal,
+    cost_total: Decimal,
+) -> BreakEven:
+    """Closed-form minimum p10 (see BreakEven docstring for the derivation)."""
+    v10 = net_by_grade[10]
+    non_top_mass = ONE - probs.p10
+    gain_at_full_top = v10 - cost_total - net_raw
+    if non_top_mass == ZERO:
+        # No non-top mix to hold fixed; only the all-top endpoint is defined.
+        return (
+            BreakEven(kind="always", p10_min=ZERO)
+            if gain_at_full_top >= ZERO
+            else BreakEven(kind="never")
+        )
+    non_top_ev = (
+        probs.p7 * net_by_grade[7]
+        + probs.p8 * net_by_grade[8]
+        + probs.p9 * net_by_grade[9]
+        + probs.p_below7 * net_below7
+    ) / non_top_mass
+    gain_at_zero_top = non_top_ev - cost_total - net_raw
+    # Gain is linear in top mass t; classify by the endpoint signs.
+    if gain_at_zero_top >= ZERO and gain_at_full_top >= ZERO:
+        return BreakEven(kind="always", p10_min=ZERO)
+    if gain_at_zero_top < ZERO and gain_at_full_top < ZERO:
+        return BreakEven(kind="never")
+    if gain_at_zero_top >= ZERO:  # positive at t=0, negative at t=1: descending
+        return BreakEven(kind="inverse")
+    t_star = (cost_total + net_raw - non_top_ev) / (v10 - non_top_ev)
+    return BreakEven(kind="threshold", p10_min=t_star)
+
+
 def _view(
     name: str,
     friction: Decimal,
@@ -85,6 +140,7 @@ def _view(
     ev_graded += probs.p_below7 * net_below7
     ev_submit = ev_graded - cost_total
     net_gain = ev_submit - net_raw
+    breakeven = solve_breakeven(probs, net_by_grade, net_below7, net_raw, cost_total)
 
     if short_circuited:
         verdict, reason = (
@@ -119,6 +175,7 @@ def _view(
         net_gain=net_gain,
         verdict=verdict,
         reason=reason,
+        breakeven=breakeven,
     )
 
 
