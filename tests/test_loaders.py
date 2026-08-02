@@ -188,6 +188,26 @@ def test_values_cli_renders_table():
     assert "all-in/card" in result.output
 
 
+def test_values_table_shows_per_grade_profit_line():
+    """SPEC per-grade profit/loss line (2026-08-02): V_g - V_raw - all-in/card,
+    shown under each value row; the gross value cells stay untouched.
+
+    Hand-computed for the Mewtwo fixture: all-in = 79.99 * 1.0635 + 0.30
+    = 85.369365. PSA 10: 750 - 90 - 85.369365 = +574.630635 -> +$574.63.
+    PSA 7.5: 120 - 90 - 85.369365 = -55.369365 -> -$55.37."""
+    result = CliRunner().invoke(main, ["values", "--cost-book", str(COSTS)])
+    assert result.exit_code == 0, result.output
+    assert "profit/loss if graded" in result.output
+    assert "+$574.63" in result.output
+    assert "-$55.37" in result.output
+    # deerling common: PSA 10 is 35 - 0.25 - 85.369365 -> a loss even at a 10
+    assert "-$50.62" in result.output
+    # the gross value cells are still there, not replaced
+    assert "$750.00" in result.output and "$120.00" in result.output
+    # legend states the arithmetic and the before-fees stance
+    assert "before any seller fees" in result.output
+
+
 def test_bare_invocation_shows_values_table():
     result = CliRunner().invoke(main, [])
     assert result.exit_code == 0, result.output
@@ -208,3 +228,54 @@ card_ids: [nope-not-real]
     with pytest.raises(ValidationError) as exc:
         load_batch(p, inventory)
     assert "unknown card id 'nope-not-real'" in str(exc.value)
+
+
+def test_values_profit_line_edge_cases():
+    """Review pass: the profit line must be cleanly omitted when it cannot be
+    computed, while the gross row still renders with '-' cells."""
+    from datetime import date as date_cls
+    from decimal import Decimal
+
+    from gradescope.models import DEFAULT_GRADES, Card, ValueSnapshot
+    from gradescope.report import money_signed, render_values_table
+    from gradescope.validate import load_cost_book
+
+    book = load_cost_book(COSTS)
+
+    def snap(kind, value):
+        return ValueSnapshot(
+            card_id="c",
+            kind=kind,
+            value=Decimal(value),
+            currency="USD",
+            source_name="s",
+            source_url="u",
+            date_observed=date_cls(2026, 7, 1),
+        )
+
+    card = {"c": Card(id="c", name="X", set_name="S", card_number="1/99", variant="unlimited")}
+    full = {f"psa{g}": snap(f"psa{g}", "50") for g in DEFAULT_GRADES}
+
+    # no raw snapshot -> no profit line, gross cells intact
+    out = render_values_table(card, {"c": dict(full)}, book, DEFAULT_GRADES)
+    assert "profit/loss if graded =" in out  # legend
+    assert "  profit/loss if graded  " not in out  # but no per-card line
+    assert "$50.00" in out
+
+    # no top-grade snapshot -> no tier, no all-in, no profit line
+    partial = {"raw": snap("raw", "10"), "psa8": snap("psa8", "50")}
+    out = render_values_table(card, {"c": partial}, book, DEFAULT_GRADES)
+    assert "  profit/loss if graded  " not in out
+
+    # top-grade value beyond every orderable tier -> no costable tier, no line
+    rich = {"raw": snap("raw", "10"), **full, "psa10": snap("psa10", "999999")}
+    out = render_values_table(card, {"c": rich}, book, DEFAULT_GRADES)
+    assert "  profit/loss if graded  " not in out
+
+    # empty snaps -> all '-' cells, no crash
+    out = render_values_table(card, {"c": {}}, book, DEFAULT_GRADES)
+    assert "  profit/loss if graded  " not in out
+
+    # sub-cent loss rounds to a signed zero with a plus sign
+    assert money_signed(Decimal("-0.001")) == "+$0.00"
+    assert money_signed(Decimal("-0.005001")) == "-$0.01"
