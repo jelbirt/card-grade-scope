@@ -189,7 +189,8 @@ costs `S` — inbound shipping, return shipping from PSA's chart, per-submission
 membership if a chosen tier requires one you don't hold — split **flat, S/N**, across the
 batch. The batch report also recomputes the whole batch with each card removed, classifying
 every card as *standalone-positive* (pays even alone), *ride-along* (positive only because
-the batch absorbs shared costs), or *drag* (removing it raises the batch's total net gain).
+the batch absorbs shared costs), *drag* (removing it raises the batch's total net gain), or
+— rarely — *negative* (loses money in-batch, but removing it wouldn't help the total).
 
 **Break-even.** Instead of asking "is my p(10) right?", the report answers *"worth
 submitting only if you believe there's at least an X% chance of a PSA 10."* It solves for
@@ -199,16 +200,23 @@ is linear in `p(10)`, so the threshold is exact, not searched. Edge cases are re
 honestly: "never breaks even at current values and costs" and "positive regardless."
 
 **Sensitivity and verdicts.** Every verdict is stress-tested: graded values ±10%/±25%,
-costs +10%/+25%, 5-point probability mass shifted between adjacent grades, batch size ±1.
-The smallest perturbation that flips the verdict is reported, and the verdict is labeled
-*robust* (survives ±25% on values) or *sensitive*. Then:
+costs +10%/+25%, and 5-point probability mass shifted between adjacent grades. The
+smallest perturbation that flips the verdict is reported, and a `robust` / `sensitive` /
+`fragile` label summarizes whether *any* tested shock flips it. The verdict rule itself
+uses the strictest single criterion — the ±25% **value** shock, since the slab premium is
+the estimate most likely to be wrong:
 
-- **submit** — net gain ≥ $20, robust, and no stale inputs;
-- **hold** — positive but thin, or sensitive, or built on a snapshot older than 90 days;
+- **submit** — net gain ≥ $20, still positive under the ±25% value shock, and no stale
+  inputs;
+- **hold** — positive but thin, or knocked non-positive by the value shock, or built on a
+  snapshot older than 90 days;
 - **don't bother** — net gain ≤ 0, or p(below) ≥ 0.5, or even a PSA 10 wouldn't cover the
   cost.
 
-Every threshold in that sentence is a `config.yaml` knob.
+(The label and the rule can therefore disagree: a card can read `SUBMIT` yet be labeled
+`fragile` because a probability-mass shift — a change in *your beliefs*, not the market —
+would flip it. The detail view names the exact flip so you can judge it.) Every threshold
+in this section is a `config.yaml` knob.
 
 ## Your own collection
 

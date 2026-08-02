@@ -343,3 +343,4 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 4. **Upcharge trigger thresholds** — PSA doesn't publish exact rules; tool warns on risk only.
 5. **Value-tier reinstatement** — tied to PSA backlog milestone (~Oct 2026 projection); the scenario comparison exists precisely for this.
 6. **Sample collection contents** — RESOLVED (Jake, 2026-08-01): complete Next Destinies + Dark Explorers checklists as import fixtures (public data, sources cited), synthetic analysis subset drawn from them; see §4.
+7. **Batch-size N±1 sensitivity shock** — specified in the §6 shock grid but not implemented by the shipped engine (found in the Phase 3 final review, 2026-08-02); value/probability/cost shocks are implemented and tested. Implementing it may relabel robustness in existing goldens, so it needs Jake's call: add it in a follow-up, or amend §6 to drop it. README documents only the implemented shocks.

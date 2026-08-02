@@ -1,6 +1,6 @@
 # card-grade-scope — task checklist
 
-Source of truth for task detail: [tasks/plan.md](plan.md). Status: Gate 1 approved; building Phase 1.
+Source of truth for task detail: [tasks/plan.md](plan.md). Status: Phases 1-2 merged; Phase 3 (docs) in review.
 
 Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md).
 Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended public later** (Jake, 2026-08-01).
@@ -31,10 +31,13 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] ⛳ Checkpoint C — PR #2: review pass done (3 findings fixed), merged by Jake 2026-08-02
 
 ## Post-gate additions (SPEC updated in-line)
-- [x] Values view per-grade profit/loss line (`V_g − V_raw − all-in/card`, net of raw confirmed by Jake) — PR #3 open, rebased on merged Phase 2, CI green, awaiting Jake
+- [x] Values view per-grade profit/loss line (`V_g − V_raw − all-in/card`, net of raw confirmed by Jake) — merged by Jake 2026-08-02 (PR #3)
 
-## Phase 3 — Docs + AI workflow (PR #3)
-- [ ] Task 10: README incl. AI/deterministic boundary diagram + walkthrough
-- [ ] Task 11: docs/assisted-lookup.md + prompt template (validated dry run)
-- [ ] Task 12: End-to-end polish, fresh-clone demo, final review sweep
-- [ ] ⛳ Checkpoint D — PR #3: hand to Jake (STOP)
+## Phase 3 — Docs + AI workflow (PR #4)
+- [x] Task 10: README incl. AI/deterministic boundary diagram + walkthrough (every fenced command verified against sample data)
+- [x] Task 11: docs/assisted-lookup.md + prompt template (dry run: template-shaped output passes `validate-snapshots`, exit 0)
+- [x] Task 12: End-to-end polish, fresh-clone demo (temp-dir clone, all commands green), final review sweep
+- [ ] ⛳ Checkpoint D — PR #4: hand to Jake (STOP)
+
+## Known gaps (need Jake's call)
+- [ ] Batch-size N±1 sensitivity shock: in SPEC §6's shock grid, not in the shipped engine (SPEC §13.7). Implement in a follow-up (may relabel goldens) or amend SPEC to drop it.
