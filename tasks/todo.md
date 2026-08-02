@@ -28,7 +28,10 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] Task 7: CSV import with per-row errors, `--strict`; Next Destinies + Dark Explorers checklist fixtures import 214/214 (verified, zero rejects)
 - [x] Task 8: Guided entry with condition-questionnaire prior (accept/edit); lookup table shipped as `data/guided-priors.yaml`
 - [x] Task 9: `snapshot` entry + `validate-snapshots` linter
-- [ ] ⛳ Checkpoint C — PR #2: review pass done (3 findings fixed), PR open — awaiting Jake (STOP)
+- [x] ⛳ Checkpoint C — PR #2: review pass done (3 findings fixed), merged by Jake 2026-08-02
+
+## Post-gate additions (SPEC updated in-line)
+- [x] Values view per-grade profit/loss line (`V_g − V_raw − all-in/card`, net of raw confirmed by Jake) — PR #3 open, rebased on merged Phase 2, CI green, awaiting Jake
 
 ## Phase 3 — Docs + AI workflow (PR #3)
 - [ ] Task 10: README incl. AI/deterministic boundary diagram + walkthrough
