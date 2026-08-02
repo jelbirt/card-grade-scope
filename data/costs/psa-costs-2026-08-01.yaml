@@ -1,0 +1,196 @@
+# PSA cost book — researched 2026-08-01. Provenance: research/psa-costs-2026.md.
+# Refresh procedure: copy to a new dated file, re-verify every figure against its
+# source URL, update date_accessed fields, commit. Never edit or delete old books.
+meta:
+  date_accessed: 2026-08-01
+  currency: USD
+
+service_levels:
+  # Active tiers (psacard.com live, 2026-08-01)
+  - name: regular
+    status: active
+    fee_per_card: 79.99
+    max_declared_value: 1500
+    turnaround_business_days: [40, 50]
+    membership_required: false
+    source:
+      url: https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  - name: express
+    status: active
+    fee_per_card: 149.00
+    max_declared_value: 2500
+    turnaround_business_days: [20, 30]
+    membership_required: false
+    source:
+      url: https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  - name: super_express
+    status: active
+    fee_per_card: 349.00
+    max_declared_value: 5000
+    turnaround_business_days: [10, 15]
+    membership_required: false
+    source:
+      url: https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  - name: walk_through
+    status: active
+    fee_per_card: 599.00
+    max_declared_value: 10000
+    turnaround_business_days: [7, 10]
+    membership_required: false
+    source:
+      url: https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  # Value tiers — PAUSED for new submissions since 2026-06-02
+  # (https://www.psacard.com/articles/articleview/15210/service-level-update-may-2026).
+  # Prices below are from PSA's own pricing page as archived 2026-05-16.
+  - name: value_bulk
+    status: paused
+    fee_per_card: 24.99
+    max_declared_value: 500
+    turnaround_business_days: [140, 160]
+    min_cards: 20
+    membership_required: true
+    source:
+      url: https://web.archive.org/web/20260516223755/https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  - name: value
+    status: paused
+    fee_per_card: 32.99
+    max_declared_value: 500
+    turnaround_business_days: [100, 120]
+    membership_required: false
+    source:
+      url: https://web.archive.org/web/20260516223755/https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  - name: value_plus
+    status: paused
+    fee_per_card: 49.99
+    max_declared_value: 500
+    turnaround_business_days: [60, 80]
+    membership_required: false
+    source:
+      url: https://web.archive.org/web/20260516223755/https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+  - name: value_max
+    status: paused
+    fee_per_card: 64.99
+    max_declared_value: 1000
+    turnaround_business_days: [40, 50]
+    membership_required: false
+    source:
+      url: https://web.archive.org/web/20260516223755/https://www.psacard.com/services/tradingcardgrading
+      date_accessed: 2026-08-01
+
+membership:
+  - name: standard
+    annual_fee: 149.00
+    source:
+      url: https://www.psacard.com/info/collectors-club-memberships-join-page-copy
+      date_accessed: 2026-08-01
+  - name: premium
+    annual_fee: 199.00
+    source:
+      url: https://www.psacard.com/info/collectors-club-memberships-join-page-copy
+      date_accessed: 2026-08-01
+
+# PSA Card & Dual Service — Domestic Return Shipping & Insurance Chart.
+# Bands relevant to a modest collection (higher value bands exist; see source).
+# The 20+ row is base_fee (the 10-19 fee) + per_item_over for each item beyond 19 —
+# interpretation UNVERIFIED against a real submission (SPEC §13).
+return_shipping:
+  - items_min: 1
+    items_max: 4
+    value_max: 2000
+    fee: 19.99
+    source: &postage
+      url: https://www.psacard.com/info/postage
+      date_accessed: 2026-08-01
+  - items_min: 5
+    items_max: 9
+    value_max: 2000
+    fee: 24.99
+    source: *postage
+  - items_min: 10
+    items_max: 19
+    value_max: 2000
+    fee: 29.99
+    source: *postage
+  - items_min: 20
+    items_max: null
+    value_max: 2000
+    base_fee: 29.99
+    per_item_over: 0.39
+    source: *postage
+  - items_min: 1
+    items_max: 4
+    value_max: 12500
+    fee: 34.99
+    source: *postage
+  - items_min: 5
+    items_max: 9
+    value_max: 12500
+    fee: 39.99
+    source: *postage
+  - items_min: 10
+    items_max: 19
+    value_max: 12500
+    fee: 44.99
+    source: *postage
+  - items_min: 20
+    items_max: null
+    value_max: 12500
+    base_fee: 44.99
+    per_item_over: 0.39
+    source: *postage
+  - items_min: 1
+    items_max: 4
+    value_max: 25000
+    fee: 49.99
+    source: *postage
+  - items_min: 5
+    items_max: 9
+    value_max: 25000
+    fee: 54.99
+    source: *postage
+  - items_min: 10
+    items_max: 19
+    value_max: 25000
+    fee: 59.99
+    source: *postage
+  - items_min: 20
+    items_max: null
+    value_max: 25000
+    base_fee: 59.99
+    per_item_over: 0.39
+    source: *postage
+
+# Shipping TO PSA is at submitter's risk and cost (PSA ship guide). Default is a
+# tracked+insured small package estimate; configure to your carrier.
+inbound_shipping:
+  default: 25.00
+  estimate: true
+  source:
+    url: https://www.psacard.com/info/shipguide
+    date_accessed: 2026-08-01
+
+# Card Saver 1 ~$0.23/card + penny sleeve ~$0.04 => 0.30/card rounded up;
+# box/bubble wrap/tape per submission.
+supplies:
+  per_card: 0.30
+  per_submission: 8.00
+  estimate: true
+  source:
+    url: https://ultrapro.com/collections/soft-sleeves-semi-rigids
+    date_accessed: 2026-08-01
+
+# Whether PSA collects CT sales tax on grading services is UNVERIFIED
+# (membership page says "plus tax where applicable"). Included by default,
+# conservative; zero the rate if the first real invoice shows none.
+sales_tax:
+  state: CT
+  rate: 0.0635
+  applies_to: [grading_fees, membership]
+  estimate: true

@@ -15,13 +15,13 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] Run repo-adopt (checks.sh, commit guard, worktree scripts, CI, PR template, repo CLAUDE.md)
 
 ## Phase 1 — Deterministic core (PR #1)
-- [ ] Task 1: Project skeleton, models, data loading, real cost book, sample collection, `gradescope costs`
-- [ ] Task 2: Single-card EV engine, two views, provisional verdicts, golden tests, `analyze --card`
-- [ ] Task 3: Break-even solver (+ monotonicity property test)
-- [ ] ⛳ Checkpoint A (internal): paper-recompute matches golden output
-- [ ] Task 4: Batch analysis — amortization, marginal classification, tier-minimum flags, `analyze --batch`
-- [ ] Task 5: Sensitivity + flip points, final verdict rules, staleness, summary-first report, `--compare-scenarios`
-- [ ] Task 6: No-network guarantee, config.yaml knobs, fuzz-case hardening
+- [x] Task 1: Project skeleton, models, data loading, real cost book, sample collection, `gradescope costs`
+- [x] Task 2: Single-card EV engine, two views, provisional verdicts, golden tests, `analyze --card`
+- [x] Task 3: Break-even solver (+ monotonicity property test)
+- [x] ⛳ Checkpoint A (internal): paper-recompute matches golden output (4 golden cases, exact Decimal)
+- [x] Task 4: Batch analysis — amortization, marginal classification, tier-minimum flags, `analyze --batch`
+- [x] Task 5: Sensitivity + flip points, final verdict rules, staleness, summary-first report, `--compare-scenarios`
+- [x] Task 6: No-network guarantee, config.yaml knobs, fuzz-case hardening
 - [ ] ⛳ Checkpoint B — PR #1: review pass, hand to Jake (STOP)
 
 ## Phase 2 — Input paths (PR #2)

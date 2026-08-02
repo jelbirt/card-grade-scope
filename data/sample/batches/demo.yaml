@@ -1,0 +1,11 @@
+# SYNTHETIC demo batch over the sample collection.
+name: demo
+pricing_scenario: current
+membership_already_held: false
+card_ids:
+  - nd-54-mewtwo-ex-full-art
+  - de-63-darkrai-ex-full-art
+  - de-111-pokemon-catcher-secret
+  - nd-99-emboar-secret
+  - nd-1-deerling-common
+  - de-46-zoroark-holo
