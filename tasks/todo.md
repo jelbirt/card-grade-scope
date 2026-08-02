@@ -22,7 +22,7 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] Task 4: Batch analysis — amortization, marginal classification, tier-minimum flags, `analyze --batch`
 - [x] Task 5: Sensitivity + flip points, final verdict rules, staleness, summary-first report, `--compare-scenarios`
 - [x] Task 6: No-network guarantee, config.yaml knobs, fuzz-case hardening
-- [ ] ⛳ Checkpoint B — PR #1: review pass, hand to Jake (STOP)
+- [x] ⛳ Checkpoint B — PR #1: review pass done (4 findings fixed), reshaped per Jake's utility-first direction, merged by Jake 2026-08-02
 
 ## Phase 2 — Input paths (PR #2)
 - [ ] Task 7: CSV import with per-row errors, `--strict`; Next Destinies + Dark Explorers checklist fixtures import 214/214

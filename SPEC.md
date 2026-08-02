@@ -1,13 +1,13 @@
 # Spec: card-grade-scope
 
-**Status: DRAFT — awaiting approval (⛳ Gate 0).**
+**Status: APPROVED** (Gate 0 approved 2026-08-01; grade-set/friction/values-view revisions approved 2026-08-02; living document — update when decisions change).
 Research provenance: [research/psa-costs-2026.md](research/psa-costs-2026.md), [research/value-sources-2026.md](research/value-sources-2026.md).
 
 ## 1. Objective
 
 Answer one question per card, with defensible math: **is it worth paying PSA to grade this card?**
 
-Jake inventories a modest (tens of cards) well-preserved childhood Pokemon collection; the tool models the true end-to-end cost of a PSA submission, the card's value raw vs. slabbed at PSA 7/8/9/10, and produces a per-card verdict — **submit / hold / don't bother** — backed by expected value, break-even thresholds, and sensitivity analysis. Batch-aware: shared costs are amortized, and adding/removing a card changes every other card's verdict.
+Jake inventories a modest (tens of cards) well-preserved childhood Pokemon collection; the tool models the true end-to-end cost of a PSA submission, the card's value raw vs. slabbed at each configured grade (default 7.5/8/8.5/9/10), and produces a per-card verdict — **submit / hold / don't bother** — backed by expected value, break-even thresholds, and sensitivity analysis. Batch-aware: shared costs are amortized, and adding/removing a card changes every other card's verdict.
 
 Success looks like: Jake runs one command against his data files and gets a report he could defend line-by-line to another collector, with zero AI involvement in the computation.
 
