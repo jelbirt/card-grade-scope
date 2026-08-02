@@ -17,6 +17,8 @@ Success looks like: Jake runs one command against his data files and gets a repo
 
 **Utility-first (revised at Jake's direction, 2026-08-01):** the tool's default face is a plain **values view** — per card: raw value, value at each configured grade, and the cost to grade — requiring no probabilities. The EV/verdict machinery is an opt-in layer on top. Default `sale_friction = 0` (Jake is not selling today; sticker prices are *the* prices); setting `sale_friction > 0` in config re-enables the take-home view and the views-disagree rule for sell-scenario analysis.
 
+**Per-grade profit/loss line (added at Jake's direction, 2026-08-02):** under each card's value row, the values view shows a second line with the deterministic profit/loss of grading *if* the card comes back at each grade: `V_g − V_raw − all-in/card` (slab value, minus the raw value already held, minus the per-card grading cost). Gross sticker prices, before any sale friction; shared per-submission costs stay listed once below the table, not folded into the per-card figure. The gross per-grade value cells are unchanged — the profit line is in addition, never instead. No probabilities involved: this is arithmetic per outcome, not prediction.
+
 ## 2. Name and directory
 
 **`card-grade-scope`** at `~/projects/card-grade-scope` (confirmed by Jake at Gate 0; renamed from the proposed `grade-scope`).
@@ -309,6 +311,7 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 | Grade set | Configurable data; default {7.5, 8, 8.5, 9, 10}; below-lowest lumped at α·V_raw |
 | Net vs. gross | **`sale_friction` default 0** (not selling today — sticker prices are the prices). Setting it > 0 (e.g. 0.1325 for eBay) re-enables the take-home view and views-disagree → hold |
 | Default face | `gradescope` with no subcommand = the `values` table (raw + per-grade values + grading cost); verdict machinery is opt-in via `analyze` |
+| Values profit line | Each card's value row is followed by per-grade profit/loss: `V_g − V_raw − all-in/card`, gross, before friction; gross value cells kept (Jake, 2026-08-02) |
 | Report shape | Summary table first (verdict + both Net_gains + break-even), per-card detail below |
 | Sales tax | CT 6.35% on grading fees + membership, on by default, marked estimate |
 | α (below-7 fallback) | 1.0, configurable |

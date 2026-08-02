@@ -17,6 +17,12 @@ def money(amount: Decimal) -> str:
     return f"${amount.quantize(CENTS)}"
 
 
+def money_signed(amount: Decimal) -> str:
+    """Explicit sign for profit/loss cells: +$574.63 / -$55.37."""
+    sign = "-" if amount < 0 else "+"
+    return f"{sign}${abs(amount).quantize(CENTS)}"
+
+
 VERDICT_LABEL = {"submit": "SUBMIT", "hold": "HOLD", "dont_bother": "DON'T BOTHER"}
 
 
@@ -51,6 +57,7 @@ def render_values_table(
             return money(snaps[kind].value) if kind in snaps else "-"
 
         tier_txt, all_in_txt = "-", "-"
+        all_in: Decimal | None = None
         if top_kind in snaps:
             from gradescope.costs import eligible_levels
 
@@ -67,10 +74,31 @@ def render_values_table(
         row = f"  {cid:<32} {cell('raw'):>9} " + " ".join(f"{cell('psa' + g):>9}" for g in grades)
         row += f"  {tier_txt:<12} {all_in_txt:>11}"
         lines.append(row)
+        # SPEC utility-first: deterministic per-grade profit/loss line — what
+        # grading adds *if* the card comes back at that grade. Needs the raw
+        # snapshot and a costable tier; no probabilities involved.
+        if all_in is not None and "raw" in snaps:
+            raw_value = snaps["raw"].value
+
+            def profit_cell(grade: str, snaps=snaps, raw=raw_value, cost=all_in) -> str:
+                kind = f"psa{grade}"
+                if kind not in snaps:
+                    return "-"
+                return money_signed(snaps[kind].value - raw - cost)
+
+            profit_row = f"  {'  profit/loss if graded':<32} {'':>9} " + " ".join(
+                f"{profit_cell(g):>9}" for g in grades
+            )
+            lines.append(profit_row)
     lines.append("")
     lines.append(
         "  all-in/card = grading fee + sales tax + per-card supplies, insuring for the "
         f"PSA {grades[-1]} outcome."
+    )
+    lines.append(
+        "  profit/loss if graded = that grade's value - raw value - all-in/card: what "
+        "grading adds if the card comes back at that grade (gross sticker prices, before "
+        "any seller fees)."
     )
     lines.append(
         "  Plus shared per-submission costs (split across however many cards you send): "

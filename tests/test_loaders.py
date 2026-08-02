@@ -188,6 +188,26 @@ def test_values_cli_renders_table():
     assert "all-in/card" in result.output
 
 
+def test_values_table_shows_per_grade_profit_line():
+    """SPEC per-grade profit/loss line (2026-08-02): V_g - V_raw - all-in/card,
+    shown under each value row; the gross value cells stay untouched.
+
+    Hand-computed for the Mewtwo fixture: all-in = 79.99 * 1.0635 + 0.30
+    = 85.369365. PSA 10: 750 - 90 - 85.369365 = +574.630635 -> +$574.63.
+    PSA 7.5: 120 - 90 - 85.369365 = -55.369365 -> -$55.37."""
+    result = CliRunner().invoke(main, ["values", "--cost-book", str(COSTS)])
+    assert result.exit_code == 0, result.output
+    assert "profit/loss if graded" in result.output
+    assert "+$574.63" in result.output
+    assert "-$55.37" in result.output
+    # deerling common: PSA 10 is 35 - 0.25 - 85.369365 -> a loss even at a 10
+    assert "-$50.62" in result.output
+    # the gross value cells are still there, not replaced
+    assert "$750.00" in result.output and "$120.00" in result.output
+    # legend states the arithmetic and the before-fees stance
+    assert "before any seller fees" in result.output
+
+
 def test_bare_invocation_shows_values_table():
     result = CliRunner().invoke(main, [])
     assert result.exit_code == 0, result.output
