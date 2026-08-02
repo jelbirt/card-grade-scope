@@ -33,9 +33,12 @@ def load_yaml(path: Path) -> object:
         return yaml.load(fh, Loader=DecimalSafeLoader)
 
 
-def load_jsonl(path: Path) -> list[tuple[int, object]]:
-    """Parse a JSONL file to [(line_number, obj)]; floats become Decimal."""
+def load_jsonl(path: Path) -> tuple[list[tuple[int, object]], list[tuple[int, str]]]:
+    """Parse a JSONL file to ([(line_number, obj)], [(line_number, error)]);
+    floats become Decimal. Every malformed line is reported, none aborts the
+    scan — a linter needs the full list."""
     rows: list[tuple[int, object]] = []
+    errors: list[tuple[int, str]] = []
     with path.open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, start=1):
             if not line.strip():
@@ -43,8 +46,8 @@ def load_jsonl(path: Path) -> list[tuple[int, object]]:
             try:
                 rows.append((lineno, json.loads(line, parse_float=Decimal)))
             except json.JSONDecodeError as exc:
-                raise ValueError(f"line {lineno}: not valid JSON ({exc.msg})") from exc
-    return rows
+                errors.append((lineno, f"not valid JSON ({exc.msg})"))
+    return rows, errors
 
 
 class DecimalSafeDumper(yaml.SafeDumper):

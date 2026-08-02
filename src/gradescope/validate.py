@@ -42,6 +42,7 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # "TG01/TG30" (trainer gallery subsets)
 CARD_NUMBER_RE = re.compile(r"^[A-Za-z]*\d+(/[A-Za-z]*\d+)?[A-Za-z]?$")
 LANGUAGE_RE = re.compile(r"^[a-z]{2}$")
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 
 
 class ValidationError(Exception):
@@ -594,13 +595,19 @@ def load_guided_priors(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> 
 # ----------------------------------------------------------------- snapshots
 
 
-def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list[ValueSnapshot]:
+def scan_snapshots(
+    path: Path, grades: tuple[str, ...] = DEFAULT_GRADES
+) -> tuple[list[ValueSnapshot], list[str]]:
+    """Scan a snapshot file end to end: every valid line becomes a
+    ValueSnapshot, every problem — malformed JSON or schema violation — is
+    reported with its line number. Never aborts early: this is the linter
+    behind `validate-snapshots`, the deterministic gate for hand- or
+    AI-written files (SPEC §7)."""
     errors: list[str] = []
     allowed_kinds = snapshot_kinds(grades)
-    try:
-        rows = yamlio.load_jsonl(path)
-    except ValueError as exc:
-        raise ValidationError([_ctx(path, "parse", str(exc))]) from exc
+    rows, parse_errors = yamlio.load_jsonl(path)
+    for lineno, msg in parse_errors:
+        errors.append(_ctx(path, f"line {lineno}", msg))
     out: list[ValueSnapshot] = []
     for lineno, obj in rows:
         where = f"line {lineno}"
@@ -620,6 +627,12 @@ def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list
             if _need(obj, key, errors, path, where) is None:
                 ok = False
         if not ok:
+            continue
+        currency = str(obj["currency"])
+        if not CURRENCY_RE.match(currency):
+            errors.append(
+                _ctx(path, where, f"currency {currency!r} must be a 3-letter uppercase code")
+            )
             continue
         kind = str(obj["kind"])
         if kind not in allowed_kinds:
@@ -665,6 +678,12 @@ def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list
                 pop_grade=canon_grade(pop_grade) if kind == "pop" else None,
             )
         )
+    return out, errors
+
+
+def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list[ValueSnapshot]:
+    """Strict form of scan_snapshots: any problem rejects the whole file."""
+    out, errors = scan_snapshots(path, grades)
     if errors:
         raise ValidationError(errors)
     return out

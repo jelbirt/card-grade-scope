@@ -11,9 +11,18 @@ import click
 from gradescope import paths, report, store
 from gradescope.config import load_config
 from gradescope.engine import analyze_batch, analyze_standalone
-from gradescope.models import VARIANTS, Card, GradeProbs, GuidedPriorTable
+from gradescope.models import (
+    VARIANTS,
+    Card,
+    GradeProbs,
+    GuidedPriorTable,
+    Spread,
+    ValueSnapshot,
+    snapshot_kinds,
+)
 from gradescope.validate import (
     CARD_NUMBER_RE,
+    CURRENCY_RE,
     ID_RE,
     LANGUAGE_RE,
     ValidationError,
@@ -24,6 +33,7 @@ from gradescope.validate import (
     load_probabilities,
     load_snapshots,
     parse_import_csv,
+    scan_snapshots,
 )
 from gradescope.values import freshest_values, freshest_values_partial
 
@@ -480,6 +490,167 @@ def import_cards(ctx: click.Context, csv_file: Path, data_dir: Path | None, stri
         click.echo(f"-> {inventory_path}")
     if result.rejected_rows:
         ctx.exit(1)
+
+
+def _prompt_optional_int(label: str) -> int | None:
+    while True:
+        text = str(click.prompt(label, default="", show_default=False)).strip()
+        if not text:
+            return None
+        try:
+            value = int(text)
+        except ValueError:
+            click.echo(f"  {text!r} is not an integer (blank to skip)")
+            continue
+        if value < 0:
+            click.echo(f"  {value} must be non-negative")
+            continue
+        return value
+
+
+def _prompt_money(label: str, allow_blank: bool = False) -> Decimal | None:
+    while True:
+        kwargs = {"default": "", "show_default": False} if allow_blank else {}
+        text = str(click.prompt(label, **kwargs)).strip()
+        if not text and allow_blank:
+            return None
+        try:
+            value = Decimal(text)
+        except InvalidOperation:
+            click.echo(f"  {text!r} is not a number")
+            continue
+        if value < 0:
+            click.echo(f"  {value} must be non-negative")
+            continue
+        return value
+
+
+@main.command()
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Data directory whose values.jsonl receives the line "
+    "(default: data/ if real data exists, else data/sample/).",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Config YAML overriding engine defaults (default: config.yaml at repo root).",
+)
+def snapshot(data_dir: Path | None, config_path: Path | None) -> None:
+    """Record one value snapshot from prompts, appended to values.jsonl.
+
+    Appends never rewrite existing lines (SPEC §5.4: the file is
+    append-only history; newer snapshots supersede for analysis). Malformed
+    lines already in the file are reported as warnings with their line
+    numbers — fix them separately; they never block a valid append."""
+    data = data_dir or paths.default_data_dir()
+    values_path = data / "values.jsonl"
+    inventory_path = data / "inventory.yaml"
+    try:
+        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        inventory = load_inventory(inventory_path) if inventory_path.exists() else {}
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    while True:
+        card_id = _prompt_valid(
+            "Card id (lowercase slug)", ID_RE.match, "must be a lowercase slug [a-z0-9-]"
+        )
+        if not inventory or card_id in inventory:
+            break
+        if click.confirm(f"'{card_id}' is not in the inventory — record anyway?"):
+            break
+    kind = click.prompt("Kind", type=click.Choice(sorted(snapshot_kinds(config.grades))))
+    pop_grade: str | None = None
+    if kind == "pop":
+        pop_grade = click.prompt("Population at grade", type=click.Choice(list(config.grades)))
+        value = _prompt_money("Population count")
+    else:
+        value = _prompt_money("Value (gross, as the source reports it)")
+    currency = _prompt_valid(
+        "Currency", CURRENCY_RE.match, "must be a 3-letter uppercase code", default="USD"
+    )
+    source_name = _prompt_valid("Source name (e.g. 'PSA APR', 'eBay sold')", bool, "required")
+    source_url = _prompt_valid("Source URL", bool, "required")
+    date_observed = date.fromisoformat(
+        _prompt_valid(
+            "Date observed",
+            _is_iso_date,
+            "want YYYY-MM-DD",
+            default=date.today().isoformat(),  # noqa: DTZ011 — operator's calendar date
+        )
+    )
+    n_comps = _prompt_optional_int("Number of comps (blank to skip)")
+    spread = None
+    low = _prompt_money("Spread low (blank to skip)", allow_blank=True)
+    if low is not None:
+        while True:
+            high = _prompt_money(f"Spread high (>= {low})")
+            if high >= low:
+                break
+            click.echo(f"  high {high} < low {low}")
+        spread = Spread(low=low, high=high)
+    recorded_by = str(click.prompt("Recorded by", default="manual-entry")).strip()
+
+    snap = ValueSnapshot(
+        card_id=card_id,
+        kind=kind,
+        value=value,
+        currency=currency,
+        source_name=source_name,
+        source_url=source_url,
+        date_observed=date_observed,
+        n_comps=n_comps,
+        spread=spread,
+        recorded_by=recorded_by,
+        pop_grade=pop_grade,
+    )
+    if values_path.exists():
+        _, problems = scan_snapshots(values_path, config.grades)
+        for problem in problems:
+            click.echo(f"warning: {problem}", err=True)
+        if problems:
+            click.echo(
+                f"warning: {len(problems)} existing line(s) are malformed — appends never "
+                "rewrite them; fix by hand and re-check with validate-snapshots",
+                err=True,
+            )
+    store.append_snapshot(values_path, snap)
+    click.echo(f"appended {kind} snapshot for '{card_id}' -> {values_path}")
+
+
+@main.command("validate-snapshots")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Config YAML overriding engine defaults (default: config.yaml at repo root).",
+)
+@click.pass_context
+def validate_snapshots(ctx: click.Context, file: Path, config_path: Path | None) -> None:
+    """Lint any snapshot file: JSONL shape, schema, kinds vs the configured
+    grade set, dates, currency, pop_grade for pop lines.
+
+    Every problem is reported with its line number; a clean file exits 0.
+    This is the deterministic gate for hand- or AI-written snapshot files
+    (SPEC §7): nothing enters analysis without passing it."""
+    try:
+        config = load_config(config_path or paths.repo_root() / "config.yaml")
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    snaps, errors = scan_snapshots(file, config.grades)
+    for err in errors:
+        click.echo(err, err=True)
+    if errors:
+        click.echo(f"{file}: {len(errors)} problem(s), {len(snaps)} valid line(s)")
+        ctx.exit(1)
+    click.echo(f"OK: {file}: {len(snaps)} snapshot line(s), no problems")
 
 
 @main.command()
