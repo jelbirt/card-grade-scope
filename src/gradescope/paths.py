@@ -9,6 +9,11 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def guided_priors() -> Path:
+    """The guided-entry prior lookup table — shipped, committed, editable."""
+    return repo_root() / "data" / "guided-priors.yaml"
+
+
 def default_data_dir() -> Path:
     """Real data when present (main checkout), else the committed sample."""
     root = repo_root()

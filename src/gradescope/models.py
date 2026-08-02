@@ -196,3 +196,42 @@ class Batch:
     pricing_scenario: str
     membership_already_held: bool
     card_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class GuidedAnswer:
+    key: str
+    points: int
+
+
+@dataclass(frozen=True)
+class GuidedQuestion:
+    field: str  # the condition field this question fills (centering, corners, ...)
+    prompt: str
+    answers: tuple[GuidedAnswer, ...]
+
+
+@dataclass(frozen=True)
+class PriorTier:
+    """One row of the guided-entry lookup: a suggested prior for any card
+    whose condition points total <= max_points (None = catch-all last tier)."""
+
+    name: str
+    max_points: int | None
+    by_grade: dict[str, Decimal]
+    p_below: Decimal
+
+
+@dataclass(frozen=True)
+class GuidedPriorTable:
+    """The condition questionnaire and its tiered prior suggestions, shipped
+    as editable data (data/guided-priors.yaml) and validated at load."""
+
+    questions: tuple[GuidedQuestion, ...]
+    tiers: tuple[PriorTier, ...]
+
+    def tier_for(self, points: int) -> PriorTier:
+        for tier in self.tiers:
+            if tier.max_points is None or points <= tier.max_points:
+                return tier
+        raise AssertionError("unreachable: the last tier is validated as catch-all")

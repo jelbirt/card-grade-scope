@@ -4,7 +4,9 @@ Every rejection is explicit and names file / entry / field. Nothing is
 silently normalized or skipped (SPEC hard rule).
 """
 
+import csv
 import re
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -19,7 +21,11 @@ from gradescope.models import (
     CostBook,
     CostLine,
     GradeProbs,
+    GuidedAnswer,
+    GuidedPriorTable,
+    GuidedQuestion,
     MembershipTier,
+    PriorTier,
     ReturnShippingBand,
     SalesTax,
     ServiceLevel,
@@ -36,6 +42,7 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # "TG01/TG30" (trainer gallery subsets)
 CARD_NUMBER_RE = re.compile(r"^[A-Za-z]*\d+(/[A-Za-z]*\d+)?[A-Za-z]?$")
 LANGUAGE_RE = re.compile(r"^[a-z]{2}$")
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 
 
 class ValidationError(Exception):
@@ -68,15 +75,20 @@ def _as_date(value: object, errors: list[str], path: Path, where: str) -> date |
 
 
 def _as_money(value: object, errors: list[str], path: Path, where: str) -> Decimal | None:
+    # NaN/Infinity are valid Decimal syntax but poison later comparisons
+    # (ordering a NaN raises InvalidOperation), so reject them here.
     if isinstance(value, Decimal):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
+        if value.is_finite():
+            return value
+    elif isinstance(value, int) and not isinstance(value, bool):
         return Decimal(value)
-    if isinstance(value, str):
+    elif isinstance(value, str):
         try:
-            return Decimal(value)
+            parsed = Decimal(value)
         except ArithmeticError:
-            pass
+            parsed = None
+        if parsed is not None and parsed.is_finite():
+            return parsed
     errors.append(_ctx(path, where, f"invalid number {value!r}"))
     return None
 
@@ -158,6 +170,203 @@ def load_inventory(path: Path) -> dict[str, Card]:
     if errors:
         raise ValidationError(errors)
     return cards
+
+
+# ----------------------------------------------------------------- csv import
+
+CSV_REQUIRED_COLUMNS = ("id", "name", "set_name", "card_number", "variant")
+CSV_OPTIONAL_COLUMNS = (
+    "language",
+    "centering",
+    "corners",
+    "edges",
+    "surface",
+    "whitening",
+    "condition_notes",
+    "grade_low",
+    "grade_high",
+    "provenance",
+)
+CSV_COLUMNS = CSV_REQUIRED_COLUMNS + CSV_OPTIONAL_COLUMNS
+_CONDITION_COLUMNS = ("centering", "corners", "edges", "surface", "whitening")
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    """Outcome of parsing one import CSV: valid cards in file order, every
+    per-row message ('row N, column C: message', SPEC §5.6), and how many
+    rows those messages rejected (a row can carry several messages)."""
+
+    cards: tuple[Card, ...]
+    row_errors: tuple[str, ...]
+    rejected_rows: int
+
+
+def _row_error(errors: list[str], row: int, column: str | None, msg: str) -> None:
+    where = f"row {row}, column {column}" if column else f"row {row}"
+    errors.append(f"{where}: {msg}")
+
+
+def _csv_grade_bound(text: str, column: str, errors: list[str], row: int) -> int | None:
+    """Parse one grade bound; on failure, record the error and return None."""
+    try:
+        value = int(text)
+    except ValueError:
+        _row_error(errors, row, column, f"{text!r} is not an integer")
+        return None
+    if not 1 <= value <= 10:
+        _row_error(errors, row, column, f"{value} outside 1-10")
+        return None
+    return value
+
+
+def parse_import_csv(path: Path, existing_ids: set[str]) -> ImportResult:
+    """Parse a whole import CSV per SPEC §5.6. The full file is always read;
+    every invalid row produces a 'row N, column C: message' entry and is
+    skipped, valid rows come back as Cards. File-level problems (unreadable
+    header, unknown columns) raise ValidationError instead — there is no way
+    to trust any row without a trusted header.
+
+    Leading lines starting with '#' are citation comments and are skipped.
+    Row numbers count data rows, 1 = the first row after the header."""
+    with path.open(encoding="utf-8", newline="") as fh:
+        lines = fh.readlines()
+    body = 0
+    while body < len(lines) and lines[body].lstrip().startswith("#"):
+        body += 1
+    reader = csv.reader(lines[body:])
+    try:
+        header = next(reader)
+    except StopIteration:
+        raise ValidationError([_ctx(path, "header", "empty file — no header row")]) from None
+
+    file_errors: list[str] = []
+    missing_cols = [c for c in CSV_REQUIRED_COLUMNS if c not in header]
+    if missing_cols:
+        file_errors.append(_ctx(path, "header", f"missing required column(s) {missing_cols}"))
+    unknown_cols = [c for c in header if c not in CSV_COLUMNS]
+    if unknown_cols:
+        file_errors.append(
+            _ctx(
+                path,
+                "header",
+                f"unknown column(s) {unknown_cols} (allowed: {list(CSV_COLUMNS)}) — "
+                "a typoed column would silently drop its data",
+            )
+        )
+    duplicate_cols = sorted({c for c in header if header.count(c) > 1})
+    if duplicate_cols:
+        file_errors.append(_ctx(path, "header", f"duplicate column(s) {duplicate_cols}"))
+    if file_errors:
+        raise ValidationError(file_errors)
+
+    errors: list[str] = []
+    cards: list[Card] = []
+    rejected = 0
+    seen_ids: set[str] = set()
+    for row_num, raw_row in enumerate(reader, start=1):
+        if not raw_row:
+            continue  # blank line
+        if len(raw_row) != len(header):
+            _row_error(
+                errors,
+                row_num,
+                None,
+                f"expected {len(header)} fields, got {len(raw_row)}",
+            )
+            rejected += 1
+            continue
+        fields = dict(zip(header, raw_row, strict=True))
+        row_ok = True
+
+        card_id = (fields.get("id") or "").strip()
+        if not card_id:
+            _row_error(errors, row_num, "id", "missing required value")
+            row_ok = False
+        elif not ID_RE.match(card_id):
+            _row_error(errors, row_num, "id", f"{card_id!r} must be a lowercase slug [a-z0-9-]")
+            row_ok = False
+        elif card_id in seen_ids:
+            _row_error(errors, row_num, "id", f"duplicate id {card_id!r} (earlier in this file)")
+            row_ok = False
+        elif card_id in existing_ids:
+            _row_error(errors, row_num, "id", f"id {card_id!r} already exists in the inventory")
+            row_ok = False
+        if card_id:
+            # any occupied id blocks later duplicates, even if this row failed
+            seen_ids.add(card_id)
+
+        for column in ("name", "set_name", "card_number"):
+            if not (fields.get(column) or "").strip():
+                _row_error(errors, row_num, column, "missing required value")
+                row_ok = False
+        number = (fields.get("card_number") or "").strip()
+        if number and not CARD_NUMBER_RE.match(number):
+            _row_error(
+                errors,
+                row_num,
+                "card_number",
+                f"{number!r} not recognized (e.g. '4/102', '103/99')",
+            )
+            row_ok = False
+
+        variant = (fields.get("variant") or "").strip()
+        if not variant:
+            _row_error(errors, row_num, "variant", "missing required value")
+            row_ok = False
+        elif variant not in VARIANTS:
+            _row_error(
+                errors,
+                row_num,
+                "variant",
+                f"unknown variant {variant!r} (allowed: {sorted(VARIANTS)})",
+            )
+            row_ok = False
+
+        language = (fields.get("language") or "").strip() or "en"
+        if not LANGUAGE_RE.match(language):
+            _row_error(errors, row_num, "language", f"{language!r} is not ISO 639-1")
+            row_ok = False
+
+        low_text = (fields.get("grade_low") or "").strip()
+        high_text = (fields.get("grade_high") or "").strip()
+        grange: tuple[int, int] | None = None
+        if bool(low_text) != bool(high_text):
+            missing_col = "grade_high" if low_text else "grade_low"
+            _row_error(errors, row_num, missing_col, "required when the other bound is given")
+            row_ok = False
+        elif low_text and high_text:
+            low = _csv_grade_bound(low_text, "grade_low", errors, row_num)
+            high = _csv_grade_bound(high_text, "grade_high", errors, row_num)
+            if low is None or high is None:
+                row_ok = False
+            elif low > high:
+                _row_error(errors, row_num, "grade_low", f"low {low} > high {high}")
+                row_ok = False
+            else:
+                grange = (low, high)
+
+        if not row_ok:
+            rejected += 1
+            continue
+        condition = {c: fields[c].strip() for c in _CONDITION_COLUMNS if fields.get(c, "").strip()}
+        notes = (fields.get("condition_notes") or "").strip()
+        if notes:
+            condition["notes"] = notes
+        cards.append(
+            Card(
+                id=card_id,
+                name=fields["name"].strip(),
+                set_name=fields["set_name"].strip(),
+                card_number=number,
+                variant=variant,
+                language=language,
+                condition=condition,
+                estimated_grade_range=grange,
+                provenance=(fields.get("provenance") or "").strip(),
+            )
+        )
+    return ImportResult(cards=tuple(cards), row_errors=tuple(errors), rejected_rows=rejected)
 
 
 # ------------------------------------------------------------- probabilities
@@ -242,16 +451,168 @@ def load_probabilities(
     return out
 
 
+# ------------------------------------------------------------- guided priors
+
+
+def load_guided_priors(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> GuidedPriorTable:
+    """Load the guided-entry lookup table (SPEC §5.2 capture mechanism).
+
+    Tier priors must match the configured grade set and sum to 1 exactly —
+    a table that disagrees with config.yaml is an error to fix in the data,
+    never something to normalize away."""
+    raw = yamlio.load_yaml(path)
+    errors: list[str] = []
+    if not isinstance(raw, dict):
+        raise ValidationError([_ctx(path, "top level", "expected a mapping")])
+
+    questions: list[GuidedQuestion] = []
+    questions_raw = raw.get("questions")
+    if not isinstance(questions_raw, dict) or not questions_raw:
+        errors.append(_ctx(path, "questions", "expected a non-empty mapping of field -> question"))
+        questions_raw = {}
+    for field_name, entry in questions_raw.items():
+        where = f"questions.{field_name}"
+        if not isinstance(entry, dict):
+            errors.append(_ctx(path, where, "expected a mapping with prompt + answers"))
+            continue
+        prompt = str(_need(entry, "prompt", errors, path, where) or "")
+        answers_raw = entry.get("answers")
+        if not isinstance(answers_raw, list) or not answers_raw:
+            errors.append(_ctx(path, where, "expected a non-empty 'answers' list"))
+            continue
+        answers: list[GuidedAnswer] = []
+        seen_keys: set[str] = set()
+        for idx, ans in enumerate(answers_raw):
+            a_where = f"{where}.answers[{idx}]"
+            if not isinstance(ans, dict):
+                errors.append(_ctx(path, a_where, "expected a mapping {key, points}"))
+                continue
+            key = str(_need(ans, "key", errors, path, a_where) or "")
+            points = ans.get("points")
+            if not isinstance(points, int) or isinstance(points, bool) or points < 0:
+                errors.append(
+                    _ctx(path, a_where, f"points {points!r} must be a non-negative integer")
+                )
+                continue
+            if key in seen_keys:
+                errors.append(_ctx(path, a_where, f"duplicate answer key {key!r}"))
+                continue
+            if key:
+                seen_keys.add(key)
+                answers.append(GuidedAnswer(key=key, points=points))
+        if len(answers) == len(answers_raw):
+            questions.append(
+                GuidedQuestion(field=str(field_name), prompt=prompt, answers=tuple(answers))
+            )
+
+    tiers: list[PriorTier] = []
+    tiers_raw = raw.get("tiers")
+    if not isinstance(tiers_raw, list) or not tiers_raw:
+        errors.append(_ctx(path, "tiers", "expected a non-empty list of tiers"))
+        tiers_raw = []
+    for idx, entry in enumerate(tiers_raw):
+        name = str(entry.get("name", "")) if isinstance(entry, dict) else ""
+        where = f"tiers[{idx}]" + (f" ({name})" if name else "")
+        if not isinstance(entry, dict):
+            errors.append(_ctx(path, where, "expected a mapping"))
+            continue
+        if not name:
+            errors.append(_ctx(path, where, "missing required field 'name'"))
+            continue
+        max_points = entry.get("max_points", "missing")
+        if max_points == "missing":
+            errors.append(_ctx(path, where, "missing 'max_points' (use null for the last tier)"))
+            continue
+        if max_points is not None and (
+            not isinstance(max_points, int) or isinstance(max_points, bool) or max_points < 0
+        ):
+            errors.append(
+                _ctx(path, where, f"max_points {max_points!r} must be a non-negative int or null")
+            )
+            continue
+        prior = entry.get("prior")
+        if not isinstance(prior, dict) or not isinstance(prior.get("grades"), dict):
+            errors.append(_ctx(path, where, "expected prior: {grades: {...}, below: ...}"))
+            continue
+        by_grade: dict[str, Decimal] = {}
+        bad = False
+        for key, v in prior["grades"].items():
+            label = canon_grade(key)
+            if label not in grades:
+                errors.append(
+                    _ctx(
+                        path,
+                        where,
+                        f"grade {label!r} is not in the configured grade set {list(grades)}",
+                    )
+                )
+                bad = True
+                continue
+            money = _as_money(v, errors, path, where)
+            if money is None or not (0 <= money <= 1):
+                errors.append(_ctx(path, where, f"grade {label}: probability {v!r} outside [0, 1]"))
+                bad = True
+                continue
+            by_grade[label] = money
+        missing = [g for g in grades if g not in by_grade]
+        if missing:
+            errors.append(
+                _ctx(path, where, f"missing probability for grade(s) {missing} — use 0 explicitly")
+            )
+            bad = True
+        below_raw = _need(prior, "below", errors, path, where)
+        below = _as_money(below_raw, errors, path, where) if below_raw is not None else None
+        if below is None or bad:
+            continue
+        if not (0 <= below <= 1):
+            errors.append(_ctx(path, where, f"below={below} outside [0, 1]"))
+            continue
+        total = sum(by_grade.values(), below)
+        if abs(total - 1) > GradeProbs.TOLERANCE:
+            errors.append(
+                _ctx(
+                    path,
+                    where,
+                    f"prior sums to {total}, not 1 (tolerance {GradeProbs.TOLERANCE}); "
+                    "fix the numbers — this tool never silently normalizes",
+                )
+            )
+            continue
+        tiers.append(PriorTier(name=name, max_points=max_points, by_grade=by_grade, p_below=below))
+
+    if tiers and len(tiers) == len(tiers_raw):
+        bounded = [t.max_points for t in tiers[:-1]]
+        if any(b is None for b in bounded):
+            errors.append(
+                _ctx(path, "tiers", "only the last tier may have max_points: null (catch-all)")
+            )
+        elif bounded != sorted(set(bounded)):
+            errors.append(_ctx(path, "tiers", "max_points must be strictly ascending"))
+        if tiers[-1].max_points is not None:
+            errors.append(
+                _ctx(path, "tiers", "the last tier must have max_points: null (catch-all)")
+            )
+    if errors:
+        raise ValidationError(errors)
+    return GuidedPriorTable(questions=tuple(questions), tiers=tuple(tiers))
+
+
 # ----------------------------------------------------------------- snapshots
 
 
-def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list[ValueSnapshot]:
+def scan_snapshots(
+    path: Path, grades: tuple[str, ...] = DEFAULT_GRADES
+) -> tuple[list[ValueSnapshot], list[str]]:
+    """Scan a snapshot file end to end: every valid line becomes a
+    ValueSnapshot, every problem — malformed JSON or schema violation — is
+    reported with its line number. Never aborts early: this is the linter
+    behind `validate-snapshots`, the deterministic gate for hand- or
+    AI-written files (SPEC §7)."""
     errors: list[str] = []
     allowed_kinds = snapshot_kinds(grades)
-    try:
-        rows = yamlio.load_jsonl(path)
-    except ValueError as exc:
-        raise ValidationError([_ctx(path, "parse", str(exc))]) from exc
+    rows, parse_errors = yamlio.load_jsonl(path)
+    for lineno, msg in parse_errors:
+        errors.append(_ctx(path, f"line {lineno}", msg))
     out: list[ValueSnapshot] = []
     for lineno, obj in rows:
         where = f"line {lineno}"
@@ -271,6 +632,12 @@ def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list
             if _need(obj, key, errors, path, where) is None:
                 ok = False
         if not ok:
+            continue
+        currency = str(obj["currency"])
+        if not CURRENCY_RE.match(currency):
+            errors.append(
+                _ctx(path, where, f"currency {currency!r} must be a 3-letter uppercase code")
+            )
             continue
         kind = str(obj["kind"])
         if kind not in allowed_kinds:
@@ -298,7 +665,9 @@ def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list
                 continue
             spread = Spread(low=low, high=high)
         n_comps = obj.get("n_comps")
-        if n_comps is not None and (not isinstance(n_comps, int) or n_comps < 0):
+        if n_comps is not None and (
+            not isinstance(n_comps, int) or isinstance(n_comps, bool) or n_comps < 0
+        ):
             errors.append(_ctx(path, where, f"n_comps {n_comps!r} must be a non-negative integer"))
             continue
         out.append(
@@ -316,6 +685,12 @@ def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list
                 pop_grade=canon_grade(pop_grade) if kind == "pop" else None,
             )
         )
+    return out, errors
+
+
+def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list[ValueSnapshot]:
+    """Strict form of scan_snapshots: any problem rejects the whole file."""
+    out, errors = scan_snapshots(path, grades)
     if errors:
         raise ValidationError(errors)
     return out

@@ -7,7 +7,9 @@ __pycache__/
 dist/
 
 # Real collection data — never committed (see SPEC.md §4).
-# Committed exceptions: cost books (public info) and the synthetic sample fixture.
+# Committed exceptions: cost books (public info), the synthetic sample fixture,
+# and the guided-entry prior lookup table (shipped editable data, SPEC §5.2).
 data/*
 !data/costs/
 !data/sample/
+!data/guided-priors.yaml

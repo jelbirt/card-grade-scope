@@ -1,0 +1,111 @@
+# Complete Next Destinies (BW4) English set checklist — public data, import fixture.
+# 99 numbered cards + secret rares 100/99-103/99 = 103 rows.
+# Sources (read-and-cite, accessed 2026-08-02):
+#   https://bulbapedia.bulbagarden.net/wiki/Next_Destinies_(TCG)
+#   https://pkmncards.com/set/next-destinies/
+# variant mapping: Pokemon-EX -> ex; full-art EX (94-99) -> full_art;
+#   secret rare (100-103) -> secret_rare; rare holo -> holo; everything else -> unlimited.
+id,name,set_name,card_number,variant
+nd-001-pinsir,Pinsir,Next Destinies,1/99,unlimited
+nd-002-seedot,Seedot,Next Destinies,2/99,unlimited
+nd-003-kricketot,Kricketot,Next Destinies,3/99,unlimited
+nd-004-kricketune,Kricketune,Next Destinies,4/99,unlimited
+nd-005-shaymin-ex,Shaymin-EX,Next Destinies,5/99,ex
+nd-006-pansage,Pansage,Next Destinies,6/99,unlimited
+nd-007-simisage,Simisage,Next Destinies,7/99,unlimited
+nd-008-foongus,Foongus,Next Destinies,8/99,unlimited
+nd-009-amoonguss,Amoonguss,Next Destinies,9/99,unlimited
+nd-010-growlithe,Growlithe,Next Destinies,10/99,unlimited
+nd-011-growlithe,Growlithe,Next Destinies,11/99,unlimited
+nd-012-arcanine,Arcanine,Next Destinies,12/99,unlimited
+nd-013-arcanine,Arcanine,Next Destinies,13/99,unlimited
+nd-014-moltres,Moltres,Next Destinies,14/99,holo
+nd-015-pansear,Pansear,Next Destinies,15/99,unlimited
+nd-016-simisear,Simisear,Next Destinies,16/99,unlimited
+nd-017-darumaka,Darumaka,Next Destinies,17/99,unlimited
+nd-018-litwick,Litwick,Next Destinies,18/99,unlimited
+nd-019-lampent,Lampent,Next Destinies,19/99,unlimited
+nd-020-chandelure,Chandelure,Next Destinies,20/99,holo
+nd-021-reshiram,Reshiram,Next Destinies,21/99,unlimited
+nd-022-reshiram-ex,Reshiram-EX,Next Destinies,22/99,ex
+nd-023-staryu,Staryu,Next Destinies,23/99,unlimited
+nd-024-starmie,Starmie,Next Destinies,24/99,unlimited
+nd-025-lapras,Lapras,Next Destinies,25/99,unlimited
+nd-026-lapras,Lapras,Next Destinies,26/99,unlimited
+nd-027-articuno,Articuno,Next Destinies,27/99,holo
+nd-028-panpour,Panpour,Next Destinies,28/99,unlimited
+nd-029-simipour,Simipour,Next Destinies,29/99,unlimited
+nd-030-basculin,Basculin,Next Destinies,30/99,unlimited
+nd-031-vanillite,Vanillite,Next Destinies,31/99,unlimited
+nd-032-vanillish,Vanillish,Next Destinies,32/99,unlimited
+nd-033-vanilluxe,Vanilluxe,Next Destinies,33/99,holo
+nd-034-frillish,Frillish,Next Destinies,34/99,unlimited
+nd-035-jellicent,Jellicent,Next Destinies,35/99,unlimited
+nd-036-cubchoo,Cubchoo,Next Destinies,36/99,unlimited
+nd-037-beartic,Beartic,Next Destinies,37/99,unlimited
+nd-038-kyurem-ex,Kyurem-EX,Next Destinies,38/99,ex
+nd-039-pikachu,Pikachu,Next Destinies,39/99,unlimited
+nd-040-raichu,Raichu,Next Destinies,40/99,unlimited
+nd-041-zapdos,Zapdos,Next Destinies,41/99,holo
+nd-042-shinx,Shinx,Next Destinies,42/99,unlimited
+nd-043-shinx,Shinx,Next Destinies,43/99,unlimited
+nd-044-luxio,Luxio,Next Destinies,44/99,unlimited
+nd-045-luxio,Luxio,Next Destinies,45/99,unlimited
+nd-046-luxray,Luxray,Next Destinies,46/99,holo
+nd-047-blitzle,Blitzle,Next Destinies,47/99,unlimited
+nd-048-zebstrika,Zebstrika,Next Destinies,48/99,unlimited
+nd-049-emolga,Emolga,Next Destinies,49/99,unlimited
+nd-050-zekrom,Zekrom,Next Destinies,50/99,unlimited
+nd-051-zekrom-ex,Zekrom-EX,Next Destinies,51/99,ex
+nd-052-grimer,Grimer,Next Destinies,52/99,unlimited
+nd-053-muk,Muk,Next Destinies,53/99,unlimited
+nd-054-mewtwo-ex,Mewtwo-EX,Next Destinies,54/99,ex
+nd-055-ralts,Ralts,Next Destinies,55/99,unlimited
+nd-056-kirlia,Kirlia,Next Destinies,56/99,unlimited
+nd-057-gardevoir,Gardevoir,Next Destinies,57/99,holo
+nd-058-munna,Munna,Next Destinies,58/99,unlimited
+nd-059-musharna,Musharna,Next Destinies,59/99,unlimited
+nd-060-darmanitan,Darmanitan,Next Destinies,60/99,unlimited
+nd-061-elgyem,Elgyem,Next Destinies,61/99,unlimited
+nd-062-beheeyem,Beheeyem,Next Destinies,62/99,unlimited
+nd-063-riolu,Riolu,Next Destinies,63/99,unlimited
+nd-064-lucario,Lucario,Next Destinies,64/99,holo
+nd-065-hippopotas,Hippopotas,Next Destinies,65/99,unlimited
+nd-066-hippowdon,Hippowdon,Next Destinies,66/99,unlimited
+nd-067-mienfoo,Mienfoo,Next Destinies,67/99,unlimited
+nd-068-mienshao,Mienshao,Next Destinies,68/99,unlimited
+nd-069-sneasel,Sneasel,Next Destinies,69/99,unlimited
+nd-070-weavile,Weavile,Next Destinies,70/99,unlimited
+nd-071-nuzleaf,Nuzleaf,Next Destinies,71/99,unlimited
+nd-072-shiftry,Shiftry,Next Destinies,72/99,unlimited
+nd-073-scraggy,Scraggy,Next Destinies,73/99,unlimited
+nd-074-scrafty,Scrafty,Next Destinies,74/99,holo
+nd-075-bronzor,Bronzor,Next Destinies,75/99,unlimited
+nd-076-bronzong,Bronzong,Next Destinies,76/99,unlimited
+nd-077-ferroseed,Ferroseed,Next Destinies,77/99,unlimited
+nd-078-jigglypuff,Jigglypuff,Next Destinies,78/99,unlimited
+nd-079-wigglytuff,Wigglytuff,Next Destinies,79/99,unlimited
+nd-080-meowth,Meowth,Next Destinies,80/99,unlimited
+nd-081-persian,Persian,Next Destinies,81/99,unlimited
+nd-082-regigigas-ex,Regigigas-EX,Next Destinies,82/99,ex
+nd-083-pidove,Pidove,Next Destinies,83/99,unlimited
+nd-084-minccino,Minccino,Next Destinies,84/99,unlimited
+nd-085-cinccino,Cinccino,Next Destinies,85/99,holo
+nd-086-cilan,Cilan,Next Destinies,86/99,unlimited
+nd-087-exp-share,Exp. Share,Next Destinies,87/99,unlimited
+nd-088-heavy-ball,Heavy Ball,Next Destinies,88/99,unlimited
+nd-089-level-ball,Level Ball,Next Destinies,89/99,unlimited
+nd-090-pokemon-center,Pokémon Center,Next Destinies,90/99,unlimited
+nd-091-skyarrow-bridge,Skyarrow Bridge,Next Destinies,91/99,unlimited
+nd-092-double-colorless-energy,Double Colorless Energy,Next Destinies,92/99,unlimited
+nd-093-prism-energy,Prism Energy,Next Destinies,93/99,unlimited
+nd-094-shaymin-ex,Shaymin-EX,Next Destinies,94/99,full_art
+nd-095-reshiram-ex,Reshiram-EX,Next Destinies,95/99,full_art
+nd-096-kyurem-ex,Kyurem-EX,Next Destinies,96/99,full_art
+nd-097-zekrom-ex,Zekrom-EX,Next Destinies,97/99,full_art
+nd-098-mewtwo-ex,Mewtwo-EX,Next Destinies,98/99,full_art
+nd-099-regigigas-ex,Regigigas-EX,Next Destinies,99/99,full_art
+nd-100-emboar,Emboar,Next Destinies,100/99,secret_rare
+nd-101-chandelure,Chandelure,Next Destinies,101/99,secret_rare
+nd-102-zoroark,Zoroark,Next Destinies,102/99,secret_rare
+nd-103-hydreigon,Hydreigon,Next Destinies,103/99,secret_rare
