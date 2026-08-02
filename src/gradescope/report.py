@@ -18,9 +18,13 @@ def money(amount: Decimal) -> str:
 
 
 def money_signed(amount: Decimal) -> str:
-    """Explicit sign for profit/loss cells: +$574.63 / -$55.37."""
-    sign = "-" if amount < 0 else "+"
-    return f"{sign}${abs(amount).quantize(CENTS)}"
+    """Explicit sign for profit/loss cells: +$574.63 / -$55.37.
+
+    Sign is decided after rounding so a sub-cent loss shows +$0.00, never a
+    minus sign on a zero magnitude."""
+    quantized = amount.quantize(CENTS)
+    sign = "-" if quantized < 0 else "+"
+    return f"{sign}${abs(quantized)}"
 
 
 VERDICT_LABEL = {"submit": "SUBMIT", "hold": "HOLD", "dont_bother": "DON'T BOTHER"}

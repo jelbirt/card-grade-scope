@@ -228,3 +228,54 @@ card_ids: [nope-not-real]
     with pytest.raises(ValidationError) as exc:
         load_batch(p, inventory)
     assert "unknown card id 'nope-not-real'" in str(exc.value)
+
+
+def test_values_profit_line_edge_cases():
+    """Review pass: the profit line must be cleanly omitted when it cannot be
+    computed, while the gross row still renders with '-' cells."""
+    from datetime import date as date_cls
+    from decimal import Decimal
+
+    from gradescope.models import DEFAULT_GRADES, Card, ValueSnapshot
+    from gradescope.report import money_signed, render_values_table
+    from gradescope.validate import load_cost_book
+
+    book = load_cost_book(COSTS)
+
+    def snap(kind, value):
+        return ValueSnapshot(
+            card_id="c",
+            kind=kind,
+            value=Decimal(value),
+            currency="USD",
+            source_name="s",
+            source_url="u",
+            date_observed=date_cls(2026, 7, 1),
+        )
+
+    card = {"c": Card(id="c", name="X", set_name="S", card_number="1/99", variant="unlimited")}
+    full = {f"psa{g}": snap(f"psa{g}", "50") for g in DEFAULT_GRADES}
+
+    # no raw snapshot -> no profit line, gross cells intact
+    out = render_values_table(card, {"c": dict(full)}, book, DEFAULT_GRADES)
+    assert "profit/loss if graded =" in out  # legend
+    assert "  profit/loss if graded  " not in out  # but no per-card line
+    assert "$50.00" in out
+
+    # no top-grade snapshot -> no tier, no all-in, no profit line
+    partial = {"raw": snap("raw", "10"), "psa8": snap("psa8", "50")}
+    out = render_values_table(card, {"c": partial}, book, DEFAULT_GRADES)
+    assert "  profit/loss if graded  " not in out
+
+    # top-grade value beyond every orderable tier -> no costable tier, no line
+    rich = {"raw": snap("raw", "10"), **full, "psa10": snap("psa10", "999999")}
+    out = render_values_table(card, {"c": rich}, book, DEFAULT_GRADES)
+    assert "  profit/loss if graded  " not in out
+
+    # empty snaps -> all '-' cells, no crash
+    out = render_values_table(card, {"c": {}}, book, DEFAULT_GRADES)
+    assert "  profit/loss if graded  " not in out
+
+    # sub-cent loss rounds to a signed zero with a plus sign
+    assert money_signed(Decimal("-0.001")) == "+$0.00"
+    assert money_signed(Decimal("-0.005001")) == "-$0.01"
