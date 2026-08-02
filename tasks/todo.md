@@ -25,10 +25,10 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] ⛳ Checkpoint B — PR #1: review pass done (4 findings fixed), reshaped per Jake's utility-first direction, merged by Jake 2026-08-02
 
 ## Phase 2 — Input paths (PR #2)
-- [ ] Task 7: CSV import with per-row errors, `--strict`; Next Destinies + Dark Explorers checklist fixtures import 214/214
-- [ ] Task 8: Guided entry with condition-questionnaire prior (accept/edit)
-- [ ] Task 9: `snapshot` entry + `validate-snapshots` linter
-- [ ] ⛳ Checkpoint C — PR #2: review pass, hand to Jake (STOP)
+- [x] Task 7: CSV import with per-row errors, `--strict`; Next Destinies + Dark Explorers checklist fixtures import 214/214 (verified, zero rejects)
+- [x] Task 8: Guided entry with condition-questionnaire prior (accept/edit); lookup table shipped as `data/guided-priors.yaml`
+- [x] Task 9: `snapshot` entry + `validate-snapshots` linter
+- [ ] ⛳ Checkpoint C — PR #2: review pass done (3 findings fixed), PR open — awaiting Jake (STOP)
 
 ## Phase 3 — Docs + AI workflow (PR #3)
 - [ ] Task 10: README incl. AI/deterministic boundary diagram + walkthrough
