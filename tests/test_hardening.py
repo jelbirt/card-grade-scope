@@ -63,8 +63,23 @@ def test_no_network_dependencies_declared():
 
 def test_config_defaults_when_missing(tmp_path):
     config = load_config(tmp_path / "does-not-exist.yaml")
-    assert config.sale_friction == Decimal("0.13")
+    assert config.sale_friction == Decimal(0)  # holding, not selling (SPEC §6)
     assert config.staleness_days == 90
+    assert config.grades == ("7.5", "8", "8.5", "9", "10")
+
+
+def test_config_grades_override_and_validation(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("grades: [7, 8, 9, 10]\n", encoding="utf-8")
+    assert load_config(p).grades == ("7", "8", "9", "10")
+    p.write_text("grades: [9, 8]\n", encoding="utf-8")
+    with pytest.raises(ValidationError) as exc:
+        load_config(p)
+    assert "ascending" in str(exc.value)
+    p.write_text("grades: [8, 8.0]\n", encoding="utf-8")
+    with pytest.raises(ValidationError) as exc:
+        load_config(p)
+    assert "duplicate" in str(exc.value)
 
 
 def test_config_overrides(tmp_path):
@@ -126,7 +141,7 @@ def test_missing_snapshot_kinds_named(tmp_path):
     with pytest.raises(ValidationError) as exc:
         freshest_values(snaps, ["x"])
     msg = str(exc.value)
-    assert "psa7" in msg and "psa10" in msg and "card x" in msg
+    assert "psa7.5" in msg and "psa10" in msg and "card x" in msg
 
 
 def test_malformed_jsonl_line_number_reported(tmp_path):
@@ -141,11 +156,14 @@ def test_zero_probability_grades_are_fine():
     from gradescope.models import GradeProbs
 
     probs = GradeProbs(
-        p7=Decimal(0),
-        p8=Decimal(0),
-        p9=Decimal("0.5"),
-        p10=Decimal("0.5"),
-        p_below7=Decimal(0),
+        by_grade={
+            "7.5": Decimal(0),
+            "8": Decimal(0),
+            "8.5": Decimal(0),
+            "9": Decimal("0.5"),
+            "10": Decimal("0.5"),
+        },
+        p_below=Decimal(0),
     )
     assert probs.total == Decimal(1)
 

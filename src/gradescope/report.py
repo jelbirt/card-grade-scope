@@ -1,12 +1,14 @@
-"""Human-readable rendering of analyses. Every number needed to recompute by
-hand appears in the detail view (SPEC: no black-box verdicts)."""
+"""Human-readable rendering. Every number needed to recompute by hand appears
+in the detail view (SPEC: no black-box verdicts). The values table is the
+tool's default face: raw + per-grade values + grading cost, no probabilities."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 
+from gradescope.costs import tax_rate_on
 from gradescope.engine import BatchAnalysis, CardAnalysis, ViewResult
-from gradescope.models import GRADES
+from gradescope.models import Card, CostBook, ValueSnapshot
 
 CENTS = Decimal("0.01")
 
@@ -18,14 +20,86 @@ def money(amount: Decimal) -> str:
 VERDICT_LABEL = {"submit": "SUBMIT", "hold": "HOLD", "dont_bother": "DON'T BOTHER"}
 
 
-def render_view(view: ViewResult, analysis: CardAnalysis) -> list[str]:
+# ------------------------------------------------------------- values table
+
+
+def render_values_table(
+    cards: dict[str, Card],
+    snapshots_by_card: dict[str, dict[str, ValueSnapshot]],
+    book: CostBook,
+    grades: tuple[str, ...],
+    scenario: str = "current",
+    verbose: bool = False,
+) -> str:
+    """The utility view: what's it worth raw vs at each grade, and what does
+    grading cost. Needs no probabilities; missing snapshots show as '-'.
+
+    The tier shown is the cheapest orderable tier whose max declared value
+    covers the card's top-grade value (insuring for the best outcome); the
+    all-in figure is that tier's fee + sales tax + per-card supplies. Shared
+    per-submission costs (shipping both ways, packing) are listed once below.
+    """
+    top_kind = f"psa{grades[-1]}"
+    tax = tax_rate_on(book, "grading_fees")
+    header = f"  {'card':<32} {'raw':>9} " + " ".join(f"{'PSA ' + g:>9}" for g in grades)
+    header += f"  {'tier':<12} {'all-in/card':>11}"
+    lines = [header, "  " + "-" * (len(header) - 2)]
+    for cid in cards:
+        snaps = snapshots_by_card.get(cid, {})
+
+        def cell(kind: str, snaps=snaps) -> str:
+            return money(snaps[kind].value) if kind in snaps else "-"
+
+        tier_txt, all_in_txt = "-", "-"
+        if top_kind in snaps:
+            from gradescope.costs import eligible_levels
+
+            candidates = [
+                lvl
+                for lvl in eligible_levels(book, scenario, 1)
+                if lvl.max_declared_value >= snaps[top_kind].value
+            ]
+            if candidates:
+                tier = min(candidates, key=lambda lvl: (lvl.fee_per_card, lvl.max_declared_value))
+                all_in = tier.fee_per_card * (1 + tax) + book.supplies.per_card
+                tier_txt = f"{tier.name} ${tier.fee_per_card}"
+                all_in_txt = money(all_in)
+        row = f"  {cid:<32} {cell('raw'):>9} " + " ".join(f"{cell('psa' + g):>9}" for g in grades)
+        row += f"  {tier_txt:<12} {all_in_txt:>11}"
+        lines.append(row)
+    lines.append("")
+    lines.append(
+        "  all-in/card = grading fee + sales tax + per-card supplies, insuring for the "
+        f"PSA {grades[-1]} outcome."
+    )
+    lines.append(
+        "  Plus shared per-submission costs (split across however many cards you send): "
+        f"inbound shipping {money(book.inbound_shipping.amount)}, return shipping from "
+        f"{money(book.return_shipping[0].fee or Decimal(0))}, packing "
+        f"{money(book.supplies.per_submission)}."
+    )
+    if verbose:
+        lines.append("")
+        lines.append("  snapshot sources:")
+        for cid, snaps in snapshots_by_card.items():
+            for kind, snap in snaps.items():
+                comps = f", n={snap.n_comps}" if snap.n_comps is not None else ""
+                lines.append(
+                    f"    {cid} {kind}: {money(snap.value)} "
+                    f"({snap.source_name}, {snap.date_observed}{comps}) {snap.source_url}"
+                )
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------- card detail
+
+
+def render_view(view: ViewResult, analysis: CardAnalysis, grades: tuple[str, ...]) -> list[str]:
     p = analysis.probs
-    lines = [
-        f"  {view.name.replace('_', '-')} view"
-        + (f" (sale friction {view.friction * 100}%)" if view.friction else " (source prices)"),
-    ]
-    terms = " + ".join(f"{p.p(g)}x{money(view.net_by_grade[g])}" for g in GRADES)
-    lines.append(f"    EV(graded) = {terms} + {p.p_below7}x{money(view.net_below7)} [below-7]")
+    label = f" (sale friction {view.friction * 100}%)" if view.friction else " (market prices)"
+    lines = [f"  {view.name.replace('_', '-')} view{label}"]
+    terms = " + ".join(f"{p.p(g)}x{money(view.net_by_grade[g])}" for g in grades)
+    lines.append(f"    EV(graded) = {terms} + {p.p_below}x{money(view.net_below)} [below]")
     lines.append(f"               = {money(view.ev_graded)}")
     lines.append(
         f"    EV(submit) = {money(view.ev_graded)} - cost {money(analysis.cost.total)}"
@@ -51,46 +125,48 @@ def render_view(view: ViewResult, analysis: CardAnalysis) -> list[str]:
                 f"min gain under value shocks {money(sens.min_gain_under_value_shocks)}"
             )
     be = view.breakeven
+    top = grades[-1]
     if be.kind == "threshold":
-        pct = (be.p10_min * 100).quantize(Decimal("0.1"))
+        pct = (be.p_top_min * 100).quantize(Decimal("0.1"))
         lines.append(
             f"    Break-even = worth submitting only if you believe there's at least a "
-            f"{pct}% chance of a PSA 10 (holding the non-top mix fixed)"
+            f"{pct}% chance of a PSA {top} (holding the non-top mix fixed)"
         )
     elif be.kind == "never":
         lines.append("    Break-even = never breaks even at current values and costs")
     elif be.kind == "always":
-        lines.append("    Break-even = positive regardless of the PSA 10 chance")
+        lines.append(f"    Break-even = positive regardless of the PSA {top} chance")
     else:
         lines.append(
-            "    Break-even = gain falls as p10 rises (PSA 10 value below the non-top mix EV) "
-            "— check the value snapshots"
+            f"    Break-even = gain falls as p{top} rises (PSA {top} value below the "
+            "non-top mix EV) — check the value snapshots"
         )
     return lines
 
 
 def render_card_detail(analysis: CardAnalysis) -> str:
     v = analysis.values
+    grades = v.grades
     lines = [f"=== {analysis.card_id} ==="]
     lines.append("  inputs (gross, freshest snapshot per kind):")
-    for kind in ("raw", "psa7", "psa8", "psa9", "psa10"):
+    for kind in ("raw", *(f"psa{g}" for g in grades)):
         snap = v.by_kind[kind]
         comps = f", n={snap.n_comps}" if snap.n_comps is not None else ""
         lines.append(
-            f"    {kind:<6} {money(snap.value):>10}  ({snap.source_name}, {snap.date_observed}{comps})"
+            f"    {kind:<8} {money(snap.value):>10}  "
+            f"({snap.source_name}, {snap.date_observed}{comps})"
         )
     p = analysis.probs
-    lines.append(
-        f"  probabilities: p7={p.p7} p8={p.p8} p9={p.p9} p10={p.p10} below7={p.p_below7}"
-        f" ({p.method})"
-    )
+    probs_txt = " ".join(f"p{g}={p.p(g)}" for g in grades)
+    lines.append(f"  probabilities: {probs_txt} below={p.p_below} ({p.method})")
     lines.append(
         f"  declared value {money(analysis.declared_value)} -> tier {analysis.cost.tier.name}"
         f" ({money(analysis.cost.grading_fee)}/card)"
     )
     if analysis.upcharge_risk:
         lines.append(
-            f"  WARNING upcharge risk: PSA 10 value {money(v.gross('psa10'))} exceeds tier max "
+            f"  WARNING upcharge risk: PSA {grades[-1]} value "
+            f"{money(v.gross(f'psa{grades[-1]}'))} exceeds tier max "
             f"declared value {money(analysis.cost.tier.max_declared_value)}"
         )
     c = analysis.cost
@@ -103,12 +179,15 @@ def render_card_detail(analysis: CardAnalysis) -> str:
         lines.append(
             f"  WARNING stale snapshots (> config days old): {', '.join(analysis.stale_kinds)}"
         )
-    lines.extend(render_view(analysis.sticker, analysis))
-    lines.extend(render_view(analysis.take_home, analysis))
+    for view in analysis.views:
+        lines.extend(render_view(view, analysis, grades))
     lines.append(
         f"  OVERALL: {VERDICT_LABEL[analysis.overall_verdict]} — {analysis.overall_reason}"
     )
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------- batch report
 
 
 CATEGORY_LABEL = {
@@ -121,15 +200,15 @@ CATEGORY_LABEL = {
 
 def render_summary_table(result: BatchAnalysis) -> list[str]:
     """One line per card: everything needed to act, no detail required (SPEC §6)."""
-    header = (
-        f"  {'card':<32} {'verdict':<13} {'sticker':>10} {'take-home':>10} "
-        f"{'BE p10':>7} {'robust':>10} flags"
-    )
+    two_views = len(result.view_names) == 2
+    top = result.analyses[0].values.grades[-1] if result.analyses else "top"
+    gain_cols = f" {'net gain':>10}" if not two_views else f" {'sticker':>10} {'take-home':>10}"
+    header = f"  {'card':<32} {'verdict':<13}{gain_cols} {'BE p' + top:>8} {'robust':>10} flags"
     lines = [header, "  " + "-" * (len(header) - 2)]
     for a in result.analyses:
         be = a.sticker.breakeven
         if be.kind == "threshold":
-            be_txt = f"{(be.p10_min * 100).quantize(Decimal('0.1'))}%"
+            be_txt = f"{(be.p_top_min * 100).quantize(Decimal('0.1'))}%"
         else:
             be_txt = {"never": "never", "always": "any", "inverse": "n/a"}[be.kind]
         flags = []
@@ -137,16 +216,18 @@ def render_summary_table(result: BatchAnalysis) -> list[str]:
             flags.append("STALE")
         if a.upcharge_risk:
             flags.append("UPCHARGE?")
+        gains = f" {money(a.sticker.net_gain):>10}"
+        if two_views:
+            gains += f" {money(a.take_home.net_gain):>10}"
         lines.append(
-            f"  {a.card_id:<32} {VERDICT_LABEL[a.overall_verdict]:<13} "
-            f"{money(a.sticker.net_gain):>10} {money(a.take_home.net_gain):>10} "
-            f"{be_txt:>7} {a.sticker.sensitivity.robustness:>10} {' '.join(flags)}"
+            f"  {a.card_id:<32} {VERDICT_LABEL[a.overall_verdict]:<13}"
+            f"{gains} {be_txt:>8} {a.sticker.sensitivity.robustness:>10} {' '.join(flags)}"
         )
     lines.append("  " + "-" * (len(header) - 2))
-    lines.append(
-        f"  {'TOTAL':<32} {'':<13} {money(result.total_net_gain['sticker']):>10} "
-        f"{money(result.total_net_gain['take_home']):>10}   (batch cost {money(result.total_cost)})"
-    )
+    totals = f" {money(result.total_net_gain['sticker']):>10}"
+    if two_views:
+        totals += f" {money(result.total_net_gain['take_home']):>10}"
+    lines.append(f"  {'TOTAL':<32} {'':<13}{totals}   (batch cost {money(result.total_cost)})")
     return lines
 
 
@@ -167,19 +248,25 @@ def render_batch(result: BatchAnalysis, detail: bool = True) -> str:
         lines.append(f"    {label}: {money(amount)}")
     lines.append(f"    total shared S = {money(result.shared.total)}")
     lines.append(f"  total batch cost: {money(result.total_cost)}")
-    for view in ("sticker", "take_home"):
+    for view in result.view_names:
         lines.append(
             f"  {view.replace('_', '-')}: total EV(submit) {money(result.total_ev_submit[view])}, "
             f"total net gain {money(result.total_net_gain[view])}"
         )
-    lines.append("  marginal analysis (sticker view / take-home view):")
+    two_views = len(result.view_names) == 2
+    label = "sticker view / take-home view" if two_views else "market prices"
+    lines.append(f"  marginal analysis ({label}):")
     for m in result.marginals:
+        cats = CATEGORY_LABEL[m.category["sticker"]]
+        gains = money(m.in_batch_gain["sticker"])
+        deltas = money(m.removal_delta["sticker"])
+        if two_views:
+            cats += f" / {CATEGORY_LABEL[m.category['take_home']]}"
+            gains += f" / {money(m.in_batch_gain['take_home'])}"
+            deltas += f" / {money(m.removal_delta['take_home'])}"
         lines.append(
-            f"    {m.card_id}: {CATEGORY_LABEL[m.category['sticker']]}"
-            f" / {CATEGORY_LABEL[m.category['take_home']]}"
-            f"  (in-batch gain {money(m.in_batch_gain['sticker'])} / "
-            f"{money(m.in_batch_gain['take_home'])}; removing it changes total net gain by "
-            f"{money(m.removal_delta['sticker'])} / {money(m.removal_delta['take_home'])})"
+            f"    {m.card_id}: {cats}  (in-batch gain {gains}; "
+            f"removing it changes total net gain by {deltas})"
         )
     for flag in result.tier_minimum_flags:
         lines.append(f"  NOTE: {flag}")

@@ -34,7 +34,8 @@ def test_sample_probabilities_load_and_are_decimal():
     probs = load_probabilities(SAMPLE / "probabilities.yaml")
     assert set(probs) >= {"nd-54-mewtwo-ex-full-art", "nd-1-deerling-common"}
     mewtwo = probs["nd-54-mewtwo-ex-full-art"]
-    assert isinstance(mewtwo.p10, Decimal)
+    assert isinstance(mewtwo.p("10"), Decimal)
+    assert mewtwo.p("7.5") == Decimal("0.10")  # YAML keys canonicalized to labels
     assert mewtwo.total == Decimal(1)
 
 
@@ -42,8 +43,9 @@ def test_sample_snapshots_load():
     snaps = load_snapshots(SAMPLE / "values.jsonl")
     kinds = {(s.card_id, s.kind) for s in snaps}
     assert ("nd-54-mewtwo-ex-full-art", "psa10") in kinds
+    assert ("nd-54-mewtwo-ex-full-art", "psa7.5") in kinds  # half-grade kind
     pop = [s for s in snaps if s.kind == "pop"]
-    assert pop and pop[0].pop_grade == 10
+    assert pop and pop[0].pop_grade == "10"
     ten = next(s for s in snaps if s.card_id == "nd-54-mewtwo-ex-full-art" and s.kind == "psa10")
     assert ten.value == Decimal("750.00")
 
@@ -97,17 +99,38 @@ def test_probability_sum_rejected_loudly(tmp_path):
         "probs.yaml",
         """
 some-card:
-  p7: 0.5
-  p8: 0.2
-  p9: 0.2
-  p10: 0.05
-  p_below7: 0.10
+  grades:
+    "7.5": 0.50
+    "8": 0.20
+    "8.5": 0.10
+    "9": 0.10
+    "10": 0.05
+  below: 0.10
 """,
     )
     with pytest.raises(ValidationError) as exc:
         load_probabilities(p)
     assert "sum to 1.05" in str(exc.value)
     assert "never silently normalizes" in str(exc.value)
+
+
+def test_probability_unknown_and_missing_grades_rejected(tmp_path):
+    p = _write(
+        tmp_path,
+        "probs.yaml",
+        """
+some-card:
+  grades:
+    "7": 0.50
+    "8": 0.50
+  below: 0
+""",
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_probabilities(p)
+    msg = str(exc.value)
+    assert "grade '7' is not in the configured grade set" in msg
+    assert "missing probability for grade(s)" in msg
 
 
 def test_duplicate_and_bad_ids_rejected(tmp_path):
@@ -154,6 +177,21 @@ def test_snapshot_rejections(tmp_path):
     msg = str(exc.value)
     assert "line 1" in msg and "unknown kind" in msg
     assert "line 2" in msg and "pop_grade" in msg
+
+
+def test_values_cli_renders_table():
+    result = CliRunner().invoke(main, ["values", "--cost-book", str(COSTS)])
+    assert result.exit_code == 0, result.output
+    assert "PSA 7.5" in result.output and "PSA 10" in result.output
+    assert "nd-54-mewtwo-ex-full-art" in result.output
+    assert "$750.00" in result.output
+    assert "all-in/card" in result.output
+
+
+def test_bare_invocation_shows_values_table():
+    result = CliRunner().invoke(main, [])
+    assert result.exit_code == 0, result.output
+    assert "PSA 7.5" in result.output
 
 
 def test_batch_unknown_card_rejected(tmp_path):

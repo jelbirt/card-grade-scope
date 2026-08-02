@@ -11,8 +11,8 @@ from pathlib import Path
 
 from gradescope import yamlio
 from gradescope.models import (
+    DEFAULT_GRADES,
     SCENARIOS,
-    SNAPSHOT_KINDS,
     VARIANTS,
     Batch,
     Card,
@@ -27,6 +27,8 @@ from gradescope.models import (
     Spread,
     Supplies,
     ValueSnapshot,
+    canon_grade,
+    snapshot_kinds,
 )
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -161,7 +163,9 @@ def load_inventory(path: Path) -> dict[str, Card]:
 # ------------------------------------------------------------- probabilities
 
 
-def load_probabilities(path: Path) -> dict[str, GradeProbs]:
+def load_probabilities(
+    path: Path, grades: tuple[str, ...] = DEFAULT_GRADES
+) -> dict[str, GradeProbs]:
     raw = yamlio.load_yaml(path)
     errors: list[str] = []
     if not isinstance(raw, dict):
@@ -172,26 +176,50 @@ def load_probabilities(path: Path) -> dict[str, GradeProbs]:
         if not isinstance(entry, dict):
             errors.append(_ctx(path, where, "expected a mapping"))
             continue
-        values: dict[str, Decimal] = {}
-        for key in ("p7", "p8", "p9", "p10", "p_below7"):
-            v = _need(entry, key, errors, path, where)
-            if v is None:
+        grade_map = entry.get("grades")
+        if not isinstance(grade_map, dict):
+            errors.append(
+                _ctx(path, where, "missing 'grades' mapping of grade label -> probability")
+            )
+            continue
+        by_grade: dict[str, Decimal] = {}
+        bad = False
+        for key, v in grade_map.items():
+            label = canon_grade(key)
+            if label not in grades:
+                errors.append(
+                    _ctx(
+                        path,
+                        where,
+                        f"grade {label!r} is not in the configured grade set {list(grades)}",
+                    )
+                )
+                bad = True
                 continue
             money = _as_money(v, errors, path, where)
-            if money is None:
+            if money is None or not (0 <= money <= 1):
+                errors.append(_ctx(path, where, f"grade {label}: probability {v!r} outside [0, 1]"))
+                bad = True
                 continue
-            if not (0 <= money <= 1):
-                errors.append(_ctx(path, where, f"{key}={money} outside [0, 1]"))
-                continue
-            values[key] = money
-        if len(values) != 5:
+            by_grade[label] = money
+        missing = [g for g in grades if g not in by_grade]
+        if missing:
+            errors.append(
+                _ctx(path, where, f"missing probability for grade(s) {missing} — use 0 explicitly")
+            )
+            bad = True
+        below_raw = _need(entry, "below", errors, path, where)
+        below = _as_money(below_raw, errors, path, where) if below_raw is not None else None
+        if below is None:
+            continue
+        if not (0 <= below <= 1):
+            errors.append(_ctx(path, where, f"below={below} outside [0, 1]"))
+            continue
+        if bad:
             continue
         probs = GradeProbs(
-            p7=values["p7"],
-            p8=values["p8"],
-            p9=values["p9"],
-            p10=values["p10"],
-            p_below7=values["p_below7"],
+            by_grade=by_grade,
+            p_below=below,
             method=str(entry.get("method", "manual")),
             date=_as_date(entry["date"], errors, path, where) if entry.get("date") else None,
         )
@@ -217,8 +245,9 @@ def load_probabilities(path: Path) -> dict[str, GradeProbs]:
 # ----------------------------------------------------------------- snapshots
 
 
-def load_snapshots(path: Path) -> list[ValueSnapshot]:
+def load_snapshots(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> list[ValueSnapshot]:
     errors: list[str] = []
+    allowed_kinds = snapshot_kinds(grades)
     try:
         rows = yamlio.load_jsonl(path)
     except ValueError as exc:
@@ -244,14 +273,16 @@ def load_snapshots(path: Path) -> list[ValueSnapshot]:
         if not ok:
             continue
         kind = str(obj["kind"])
-        if kind not in SNAPSHOT_KINDS:
+        if kind not in allowed_kinds:
             errors.append(
-                _ctx(path, where, f"unknown kind {kind!r} (allowed: {sorted(SNAPSHOT_KINDS)})")
+                _ctx(path, where, f"unknown kind {kind!r} (allowed: {sorted(allowed_kinds)})")
             )
             continue
         pop_grade = obj.get("pop_grade")
-        if kind == "pop" and pop_grade not in (7, 8, 9, 10):
-            errors.append(_ctx(path, where, "kind 'pop' requires pop_grade in 7-10"))
+        if kind == "pop" and (pop_grade is None or canon_grade(pop_grade) not in grades):
+            errors.append(
+                _ctx(path, where, f"kind 'pop' requires pop_grade in the grade set {list(grades)}")
+            )
             continue
         value = _as_money(obj["value"], errors, path, where)
         observed = _as_date(obj["date_observed"], errors, path, where)
@@ -282,7 +313,7 @@ def load_snapshots(path: Path) -> list[ValueSnapshot]:
                 n_comps=n_comps,
                 spread=spread,
                 recorded_by=str(obj.get("recorded_by", "")),
-                pop_grade=pop_grade if kind == "pop" else None,
+                pop_grade=canon_grade(pop_grade) if kind == "pop" else None,
             )
         )
     if errors:

@@ -24,9 +24,23 @@ VARIANTS = frozenset(
     }
 )
 
-SNAPSHOT_KINDS = frozenset({"raw", "psa7", "psa8", "psa9", "psa10", "pop"})
-GRADES = (7, 8, 9, 10)
+# Grade outcomes are configurable data (SPEC: grade set). Labels are canonical
+# strings ("7.5", "8"); outcomes below the lowest configured grade are lumped
+# as "below" valued at alpha * V_raw. PSA half grades exist up to 8.5 only.
+DEFAULT_GRADES = ("7.5", "8", "8.5", "9", "10")
 SCENARIOS = frozenset({"current", "value_restored"})
+
+
+def canon_grade(value: object) -> str:
+    """Canonical grade label: 8 -> "8", Decimal("7.5") -> "7.5", "8.0" -> "8"."""
+    text = str(value)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def snapshot_kinds(grades: tuple[str, ...]) -> frozenset[str]:
+    return frozenset({"raw", "pop"} | {f"psa{g}" for g in grades})
 
 
 @dataclass(frozen=True)
@@ -45,25 +59,23 @@ class Card:
 
 @dataclass(frozen=True)
 class GradeProbs:
-    """Probabilities of record for one card. Always validated at load: sum == 1
+    """Probabilities of record for one card, keyed by canonical grade label,
+    plus the lumped below-lowest-grade mass. Always validated at load: sum == 1
     within TOLERANCE, else rejected loudly (never silently normalized)."""
 
-    p7: Decimal
-    p8: Decimal
-    p9: Decimal
-    p10: Decimal
-    p_below7: Decimal
+    by_grade: dict[str, Decimal]
+    p_below: Decimal
     method: str = "manual"  # manual | guided
     date: date | None = None
 
     TOLERANCE = Decimal("1e-6")
 
-    def p(self, grade: int) -> Decimal:
-        return {7: self.p7, 8: self.p8, 9: self.p9, 10: self.p10}[grade]
+    def p(self, grade: str) -> Decimal:
+        return self.by_grade[grade]
 
     @property
     def total(self) -> Decimal:
-        return self.p7 + self.p8 + self.p9 + self.p10 + self.p_below7
+        return sum(self.by_grade.values(), self.p_below)
 
 
 @dataclass(frozen=True)
@@ -84,7 +96,7 @@ class ValueSnapshot:
     n_comps: int | None = None
     spread: Spread | None = None
     recorded_by: str = ""
-    pop_grade: int | None = None  # required when kind == "pop"
+    pop_grade: str | None = None  # canonical grade label; required when kind == "pop"
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,8 @@
 """Golden EV cases with hand-computed expected values (SPEC §9).
 
-All cases pin to the frozen fixture cost book in tests/golden/fixtures/ and the
-committed sample collection, with exact Decimal equality — any drift in the
-engine's arithmetic fails these tests.
+Grade set: the default 7.5/8/8.5/9/10; sale_friction 0 (sticker is the only
+view). All cases pin to the frozen fixture cost book and the committed sample
+collection, with exact Decimal equality — any drift fails these tests.
 """
 
 from datetime import date
@@ -20,7 +20,7 @@ from gradescope.values import CardValues, freshest_values
 SAMPLE = paths.repo_root() / "data" / "sample"
 FROZEN_BOOK = Path(__file__).parent / "fixtures" / "cost-book-frozen.yaml"
 AS_OF = date(2026, 8, 1)
-CONFIG = EngineConfig()  # SPEC §12 defaults: friction 0.13, alpha 1.0, min_gain 20
+CONFIG = EngineConfig()  # SPEC §12 defaults: friction 0, alpha 1.0, min_gain 20
 
 
 @pytest.fixture(scope="module")
@@ -45,28 +45,27 @@ def sample_probs():
 
 
 def test_golden_mewtwo_standalone_current(book, sample_values, sample_probs):
-    """Hand computation (sticker view, current scenario, batch of one).
+    """Hand computation (current scenario, batch of one, friction 0).
 
-    Gross values: raw 90, psa7 110, psa8 160, psa9 260, psa10 750.
-    Probs: p7 .10, p8 .35, p9 .40, p10 .10, below7 .05; alpha = 1.
+    Gross values: raw 90; 7.5: 120, 8: 160, 8.5: 200, 9: 260, 10: 750.
+    Probs: .10 / .25 / .15 / .25 / .20, below .05; alpha = 1.
 
-    declared value = .10x110 + .35x160 + .40x260 + .10x750 + .05x(1x90)
-                   = 11 + 56 + 104 + 75 + 4.50 = 250.50 -> tier regular (79.99)
+    declared value = .10x120 + .25x160 + .15x200 + .25x260 + .20x750 + .05x90
+                   = 12 + 40 + 30 + 65 + 150 + 4.50 = 301.50 -> tier regular
 
     Costs: fee 79.99; CT tax 79.99 x .0635 = 5.079365; card supplies 0.30
       shared (solo): inbound 25.00 + return band 1-4/<=2000 19.99 + packing 8.00
                    = 52.99
       C_i = 79.99 + 5.079365 + 0.30 + 52.99 = 138.359365
 
-    Sticker: EV(graded) = 246 + 4.50 = 250.50
-             EV(submit) = 250.50 - 138.359365 = 112.140635
-             Net gain   = 112.140635 - 90 = 22.140635  -> submit (>= 20)
+    EV(graded) = 301.50 (same weighted sum as DV since alpha = 1)
+    EV(submit) = 301.50 - 138.359365 = 163.140635
+    Net gain   = 163.140635 - 90 = 73.140635 -> base rule submit (>= 20)
 
-    Take-home (x 0.87): EV(graded) = 250.50 x 0.87 = 217.935
-             EV(submit) = 217.935 - 138.359365 = 79.575635
-             Net gain   = 79.575635 - 90 x 0.87 (=78.30) = 1.275635 -> hold
-
-    Views disagree -> overall HOLD.
+    Sensitivity: -25% graded shock: 297 x 0.75 + 4.50 = 227.25
+                 gain = 227.25 - 138.359365 - 90 = -1.109365 <= 0
+    -> final verdict HOLD (not robust); flips only at the 25% shock, so the
+    robustness label is 'sensitive', not 'fragile'.
     """
     a = analyze_standalone(
         "nd-54-mewtwo-ex-full-art",
@@ -77,33 +76,51 @@ def test_golden_mewtwo_standalone_current(book, sample_values, sample_probs):
         CONFIG,
         AS_OF,
     )
-    assert a.declared_value == Decimal("250.50")
+    assert a.declared_value == Decimal("301.50")
     assert a.cost.tier.name == "regular"
     assert a.cost.tax_on_fee == Decimal("5.079365")
     assert a.cost.total == Decimal("138.359365")
-    assert a.sticker.ev_graded == Decimal("250.50")
-    assert a.sticker.ev_submit == Decimal("112.140635")
-    assert a.sticker.net_gain == Decimal("22.140635")
-    # Task 5 finalization (the one deliberate golden update): the base rule
-    # says submit, but a -10% graded-value shock swings EV by 24.60 and turns
-    # the gain negative, so the sensitivity-aware verdict is HOLD.
+    assert a.sticker.ev_graded == Decimal("301.50")
+    assert a.sticker.ev_submit == Decimal("163.140635")
+    assert a.sticker.net_gain == Decimal("73.140635")
     assert a.sticker.base_verdict == "submit"
     assert a.sticker.verdict == "hold"
     assert "not robust" in a.sticker.reason
-    assert a.take_home.ev_graded == Decimal("217.9350")
-    assert a.take_home.net_gain == Decimal("1.275635")
-    assert a.take_home.verdict == "hold"
+    assert a.sticker.sensitivity.robustness == "sensitive"
+    assert a.sticker.sensitivity.min_gain_under_value_shocks == Decimal("-1.109365")
+    assert a.take_home is None  # friction 0: sticker is the only view
     assert a.overall_verdict == "hold"
     assert not a.upcharge_risk  # 750 <= 1500
-    assert not a.stale_kinds  # observed 2026-07-20, as-of 2026-08-01, threshold 90d
+    assert not a.stale_kinds
+
+
+def test_golden_mewtwo_breakeven(book, sample_values, sample_probs):
+    """Break-even (sticker, solo):
+    A = non-top EV / (1 - p10) = (12 + 40 + 30 + 65 + 4.50) / 0.80
+      = 151.50 / 0.80 = 189.375
+    t* = (C + raw - A) / (V10 - A) = (138.359365 + 90 - 189.375) / (750 - 189.375)
+       = 38.984365 / 560.625 = 0.0695373...  -> 0.069537 at 1e-6
+    """
+    a = analyze_standalone(
+        "nd-54-mewtwo-ex-full-art",
+        sample_probs["nd-54-mewtwo-ex-full-art"],
+        sample_values["nd-54-mewtwo-ex-full-art"],
+        book,
+        "current",
+        CONFIG,
+        AS_OF,
+    )
+    be = a.sticker.breakeven
+    assert be.kind == "threshold"
+    assert be.p_top_min.quantize(Decimal("1e-6")) == Decimal("0.069537")
 
 
 def test_golden_deerling_never_viable(book, sample_values, sample_probs):
-    """Deerling common: PSA 10 (35.00 sticker) is far below the ~138 cost.
+    """Deerling common: PSA 10 (35.00) is far below the ~138 cost.
 
-    declared value = .15x5 + .40x8 + .35x15 + .05x35 + .05x(1x0.25)
-                   = 0.75 + 3.20 + 5.25 + 1.75 + 0.0125 = 10.9625 -> regular
-    Cost floor triggers in both views -> DON'T BOTHER overall.
+    declared value = .10x4 + .30x8 + .25x11 + .25x15 + .05x35 + .05x0.25
+                   = 0.40 + 2.40 + 2.75 + 3.75 + 1.75 + 0.0125 = 11.0625
+    Cost floor triggers -> DON'T BOTHER; break-even 'never'.
     """
     a = analyze_standalone(
         "nd-1-deerling-common",
@@ -114,51 +131,49 @@ def test_golden_deerling_never_viable(book, sample_values, sample_probs):
         CONFIG,
         AS_OF,
     )
-    assert a.declared_value == Decimal("10.9625")
+    assert a.declared_value == Decimal("11.0625")
     assert a.cost.total == Decimal("138.359365")
     assert a.sticker.verdict == "dont_bother"
     assert "cost floor" in a.sticker.reason
-    assert a.take_home.verdict == "dont_bother"
+    assert a.sticker.breakeven.kind == "never"
     assert a.overall_verdict == "dont_bother"
 
 
-def test_golden_short_circuit_below7():
-    """p_below7 = 0.60 >= 0.5 short-circuits to don't bother in every view,
-    regardless of values (SPEC §6). Values constructed inline."""
+def test_golden_short_circuit_below():
+    """p_below = 0.60 >= 0.5 short-circuits to don't bother regardless of
+    values (SPEC §6). Probabilities constructed inline."""
     probs = GradeProbs(
-        p7=Decimal("0.20"),
-        p8=Decimal("0.10"),
-        p9=Decimal("0.05"),
-        p10=Decimal("0.05"),
-        p_below7=Decimal("0.60"),
+        by_grade={
+            "7.5": Decimal("0.20"),
+            "8": Decimal("0.10"),
+            "8.5": Decimal("0.03"),
+            "9": Decimal("0.05"),
+            "10": Decimal("0.02"),
+        },
+        p_below=Decimal("0.60"),
     )
     snaps = load_snapshots(SAMPLE / "values.jsonl")
     values_map = freshest_values(snaps, ["nd-54-mewtwo-ex-full-art"])
     values = CardValues(
-        card_id="hypothetical", by_kind=values_map["nd-54-mewtwo-ex-full-art"].by_kind
+        card_id="hypothetical",
+        grades=CONFIG.grades,
+        by_kind=values_map["nd-54-mewtwo-ex-full-art"].by_kind,
     )
     book = load_cost_book(FROZEN_BOOK)
     a = analyze_standalone("hypothetical", probs, values, book, "current", CONFIG, AS_OF)
     assert a.short_circuited
     assert a.sticker.verdict == "dont_bother"
-    assert a.take_home.verdict == "dont_bother"
-    assert (
-        "expected grade below 7" in a.overall_reason or "expected grade below 7" in a.sticker.reason
-    )
+    assert "expected grade below 7.5" in a.sticker.reason
     assert a.overall_verdict == "dont_bother"
 
 
-def test_golden_value_restored_scenario_flips_zoroark(book, sample_values, sample_probs):
-    """Zoroark holo (raw 4.00): dead at $79.99 Regular, but under value_restored
-    a batch of 20+ could use value_bulk at 24.99. Standalone (n=1) still cannot
-    use value_bulk (20-card minimum) — the cheapest eligible is value (32.99).
+def test_golden_value_restored_scenario_zoroark(book, sample_values, sample_probs):
+    """Zoroark holo under value_restored, standalone: value_bulk is blocked by
+    its 20-card minimum at n=1, so the cheapest eligible is value (32.99).
 
-    declared value = .20x8 + .40x14 + .30x28 + .05x80 + .05x(1x4)
-                   = 1.60 + 5.60 + 8.40 + 4.00 + 0.20 = 19.80 -> value tier (32.99)
-    Cost: 32.99 + tax 2.094865 + 0.30 + 52.99 = 88.374865
-    Sticker EV(graded) = 19.80; net gain = 19.80 - 88.374865 - 4 = way negative.
-    Still don't bother standalone — the flip Jake cares about needs the batch
-    math (Task 4); this pins tier eligibility + min-card enforcement.
+    declared value = .15x6 + .30x14 + .25x20 + .20x28 + .05x80 + .05x4
+                   = 0.90 + 4.20 + 5.00 + 5.60 + 4.00 + 0.20 = 19.90
+    Still don't bother standalone; the batch math is where bulk pricing helps.
     """
     a = analyze_standalone(
         "de-46-zoroark-holo",
@@ -171,5 +186,5 @@ def test_golden_value_restored_scenario_flips_zoroark(book, sample_values, sampl
     )
     assert a.cost.tier.name == "value"  # not value_bulk: 20-card minimum, n=1
     assert a.cost.grading_fee == Decimal("32.99")
-    assert a.declared_value == Decimal("19.80")
+    assert a.declared_value == Decimal("19.90")
     assert a.overall_verdict == "dont_bother"

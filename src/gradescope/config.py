@@ -11,12 +11,14 @@ from pathlib import Path
 
 from gradescope import yamlio
 from gradescope.engine import EngineConfig
+from gradescope.models import canon_grade
 from gradescope.validate import ValidationError
 
-_DECIMAL_KEYS = {"sale_friction", "alpha", "min_gain", "below7_short_circuit", "prob_shift"}
+_DECIMAL_KEYS = {"sale_friction", "alpha", "min_gain", "below_short_circuit", "prob_shift"}
 _INT_KEYS = {"staleness_days"}
 _TUPLE_KEYS = {"value_shocks", "cost_shocks"}
-KNOWN_KEYS = _DECIMAL_KEYS | _INT_KEYS | _TUPLE_KEYS
+_GRADE_KEYS = {"grades"}
+KNOWN_KEYS = _DECIMAL_KEYS | _INT_KEYS | _TUPLE_KEYS | _GRADE_KEYS
 
 
 def load_config(path: Path | None) -> EngineConfig:
@@ -56,6 +58,20 @@ def load_config(path: Path | None) -> EngineConfig:
                 kwargs[key] = tuple(Decimal(v) if isinstance(v, int) else v for v in value)
             else:
                 errors.append(f"{path}: {key}: expected a non-empty list of numbers, got {value!r}")
+        elif key in _GRADE_KEYS:
+            if not isinstance(value, list) or not value:
+                errors.append(f"{path}: grades: expected a non-empty list of grade labels")
+                continue
+            labels = [canon_grade(v) for v in value]
+            decimals = [Decimal(label) for label in labels]
+            if len(set(labels)) != len(labels):
+                errors.append(f"{path}: grades: duplicate labels in {labels}")
+            elif decimals != sorted(decimals):
+                errors.append(f"{path}: grades: must be ascending, got {labels}")
+            elif any(d < 1 or d > 10 for d in decimals):
+                errors.append(f"{path}: grades: labels must be within 1-10, got {labels}")
+            else:
+                kwargs[key] = tuple(labels)
     if errors:
         raise ValidationError(errors)
     config = EngineConfig(**kwargs)

@@ -1,7 +1,12 @@
 """The deterministic decision engine (SPEC §6). Stdlib math only.
 
+Grade outcomes are configurable data (default 7.5/8/8.5/9/10); outcomes below
+the lowest configured grade are lumped as "below" valued at alpha * V_raw.
+
 Verdicts are sensitivity-aware: a base-rule "submit" is downgraded to "hold"
 when it is not robust under the value-shock grid or when its inputs are stale.
+With the default sale_friction = 0 the sticker view is the only view; setting
+sale_friction > 0 adds the take-home view and the views-disagree -> hold rule.
 Reasons are explicit strings so every verdict is explainable.
 """
 
@@ -12,7 +17,7 @@ from datetime import date
 from decimal import Decimal
 
 from gradescope.costs import CardCost, card_cost, select_tier, shared_costs
-from gradescope.models import GRADES, Batch, CostBook, GradeProbs
+from gradescope.models import DEFAULT_GRADES, Batch, CostBook, GradeProbs
 from gradescope.values import CardValues
 
 ZERO = Decimal(0)
@@ -21,37 +26,47 @@ ONE = Decimal(1)
 
 @dataclass(frozen=True)
 class EngineConfig:
-    """Knobs with SPEC §12 defaults. config.yaml override lands in Task 6."""
+    """Knobs with SPEC §12 defaults; config.yaml overrides any of them."""
 
-    sale_friction: Decimal = Decimal("0.13")
-    alpha: Decimal = Decimal("1.0")  # V_below7 = alpha * V_raw
+    # Jake is holding, not selling: marketplace fees are not a cost of grading.
+    # For a sell-scenario analysis set e.g. 0.1325 (eBay trading-card final
+    # value fee, non-store sellers) — this re-enables the take-home view.
+    sale_friction: Decimal = Decimal(0)
+    alpha: Decimal = Decimal("1.0")  # V_below = alpha * V_raw
     min_gain: Decimal = Decimal(20)
-    below7_short_circuit: Decimal = Decimal("0.5")
+    below_short_circuit: Decimal = Decimal("0.5")
     staleness_days: int = 90
+    # Ascending canonical grade labels; the last is the "top" outcome for
+    # break-even. PSA half grades exist up to 8.5 (no PSA 9.5).
+    grades: tuple[str, ...] = DEFAULT_GRADES
     # Sensitivity shocks (SPEC §6). Value shocks scale the graded-outcome
-    # values V_7..V_10 only (the slab premium is the estimate most likely to
-    # be wrong); V_raw and hence V_below7 stay fixed.
+    # values only (the slab premium is the estimate most likely to be wrong);
+    # V_raw and hence V_below stay fixed.
     value_shocks: tuple[Decimal, ...] = (Decimal("0.10"), Decimal("0.25"))
     prob_shift: Decimal = Decimal("0.05")
     cost_shocks: tuple[Decimal, ...] = (Decimal("0.10"), Decimal("0.25"))
 
+    @property
+    def top_grade(self) -> str:
+        return self.grades[-1]
+
 
 @dataclass(frozen=True)
 class BreakEven:
-    """Minimum p10 for Net_gain >= 0, holding the relative proportions of the
-    non-top outcomes {7, 8, 9, below7} fixed and redistributing (SPEC §6).
+    """Minimum top-grade mass for Net_gain >= 0, holding the relative
+    proportions of all non-top outcomes (lower grades + below) fixed (SPEC §6).
 
-    With non-top conditional EV A = (sum of non-top p_g * V_g) / (1 - p10),
-    Net_gain(t) = (1-t)*A + t*V10 - C - V_raw is linear in the top mass t:
-      kind "threshold": t* = (C + V_raw - A) / (V10 - A), in (0, 1]
+    With non-top conditional EV A = (sum of non-top p * V) / (1 - p_top),
+    Net_gain(t) = (1-t)*A + t*V_top - C - V_raw is linear in the top mass t:
+      kind "threshold": t* = (C + V_raw - A) / (V_top - A), in (0, 1]
       kind "always":    Net_gain >= 0 even at t = 0
       kind "never":     Net_gain < 0 even at t = 1
-      kind "inverse":   gain falls as p10 rises (V10 below the non-top mix EV);
-                        pathological data — reported, never used as a threshold
+      kind "inverse":   gain falls as p_top rises (V_top below the non-top mix
+                        EV); pathological data — reported, never a threshold
     """
 
     kind: str  # threshold | always | never | inverse
-    p10_min: Decimal | None = None
+    p_top_min: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -78,10 +93,10 @@ class ViewResult:
 
     name: str  # "sticker" | "take_home"
     friction: Decimal
-    net_by_grade: dict[int, Decimal]
-    net_below7: Decimal
+    net_by_grade: dict[str, Decimal]
+    net_below: Decimal
     net_raw: Decimal
-    ev_graded: Decimal  # sum p_g * V_g + p_below7 * V_below7
+    ev_graded: Decimal  # sum p_g * V_g + p_below * V_below
     ev_submit: Decimal
     net_gain: Decimal
     verdict: str  # submit | hold | dont_bother (final, sensitivity-aware)
@@ -101,52 +116,55 @@ class CardAnalysis:
     short_circuited: bool
     upcharge_risk: bool
     sticker: ViewResult
-    take_home: ViewResult
+    take_home: ViewResult | None  # None when sale_friction == 0 (the default)
     overall_verdict: str
     overall_reason: str
     stale_kinds: list[str]
 
+    @property
+    def views(self) -> tuple[ViewResult, ...]:
+        return (self.sticker,) if self.take_home is None else (self.sticker, self.take_home)
 
-def declared_value(probs: GradeProbs, values: CardValues, alpha: Decimal) -> Decimal:
+
+def declared_value(probs: GradeProbs, values: CardValues, config: EngineConfig) -> Decimal:
     """Probability-weighted post-grading gross value — what you'd honestly declare."""
-    graded = sum((probs.p(g) * values.gross(f"psa{g}") for g in GRADES), ZERO)
-    return graded + probs.p_below7 * alpha * values.gross("raw")
+    graded = sum((probs.p(g) * values.gross(f"psa{g}") for g in config.grades), ZERO)
+    return graded + probs.p_below * config.alpha * values.gross("raw")
 
 
 def solve_breakeven(
     probs: GradeProbs,
-    net_by_grade: dict[int, Decimal],
-    net_below7: Decimal,
+    grades: tuple[str, ...],
+    net_by_grade: dict[str, Decimal],
+    net_below: Decimal,
     net_raw: Decimal,
     cost_total: Decimal,
 ) -> BreakEven:
-    """Closed-form minimum p10 (see BreakEven docstring for the derivation)."""
-    v10 = net_by_grade[10]
-    non_top_mass = ONE - probs.p10
-    gain_at_full_top = v10 - cost_total - net_raw
+    """Closed-form minimum top-grade mass (see BreakEven for the derivation)."""
+    top = grades[-1]
+    v_top = net_by_grade[top]
+    non_top_mass = ONE - probs.p(top)
+    gain_at_full_top = v_top - cost_total - net_raw
     if non_top_mass == ZERO:
         # No non-top mix to hold fixed; only the all-top endpoint is defined.
         return (
-            BreakEven(kind="always", p10_min=ZERO)
+            BreakEven(kind="always", p_top_min=ZERO)
             if gain_at_full_top >= ZERO
             else BreakEven(kind="never")
         )
     non_top_ev = (
-        probs.p7 * net_by_grade[7]
-        + probs.p8 * net_by_grade[8]
-        + probs.p9 * net_by_grade[9]
-        + probs.p_below7 * net_below7
+        sum((probs.p(g) * net_by_grade[g] for g in grades[:-1]), ZERO) + probs.p_below * net_below
     ) / non_top_mass
     gain_at_zero_top = non_top_ev - cost_total - net_raw
     # Gain is linear in top mass t; classify by the endpoint signs.
     if gain_at_zero_top >= ZERO and gain_at_full_top >= ZERO:
-        return BreakEven(kind="always", p10_min=ZERO)
+        return BreakEven(kind="always", p_top_min=ZERO)
     if gain_at_zero_top < ZERO and gain_at_full_top < ZERO:
         return BreakEven(kind="never")
     if gain_at_zero_top >= ZERO:  # positive at t=0, negative at t=1: descending
         return BreakEven(kind="inverse")
-    t_star = (cost_total + net_raw - non_top_ev) / (v10 - non_top_ev)
-    return BreakEven(kind="threshold", p10_min=t_star)
+    t_star = (cost_total + net_raw - non_top_ev) / (v_top - non_top_ev)
+    return BreakEven(kind="threshold", p_top_min=t_star)
 
 
 def _view(
@@ -159,22 +177,22 @@ def _view(
     short_circuited: bool,
 ) -> ViewResult:
     keep = ONE - friction
-    net_by_grade = {g: values.gross(f"psa{g}") * keep for g in GRADES}
+    net_by_grade = {g: values.gross(f"psa{g}") * keep for g in config.grades}
     net_raw = values.gross("raw") * keep
-    net_below7 = config.alpha * net_raw
-    ev_graded = sum((probs.p(g) * net_by_grade[g] for g in GRADES), ZERO)
-    ev_graded += probs.p_below7 * net_below7
+    net_below = config.alpha * net_raw
+    ev_graded = sum((probs.p(g) * net_by_grade[g] for g in config.grades), ZERO)
+    ev_graded += probs.p_below * net_below
     ev_submit = ev_graded - cost_total
     net_gain = ev_submit - net_raw
-    breakeven = solve_breakeven(probs, net_by_grade, net_below7, net_raw, cost_total)
+    breakeven = solve_breakeven(probs, config.grades, net_by_grade, net_below, net_raw, cost_total)
     verdict, reason = _rule_verdict(
-        net_gain, net_by_grade[10], cost_total, probs, config, short_circuited
+        net_gain, net_by_grade[config.top_grade], cost_total, probs, config, short_circuited
     )
     return ViewResult(
         name=name,
         friction=friction,
         net_by_grade=net_by_grade,
-        net_below7=net_below7,
+        net_below=net_below,
         net_raw=net_raw,
         ev_graded=ev_graded,
         ev_submit=ev_submit,
@@ -188,7 +206,7 @@ def _view(
 
 def _rule_verdict(
     net_gain: Decimal,
-    net_v10: Decimal,
+    net_v_top: Decimal,
     cost_total: Decimal,
     probs: GradeProbs,
     config: EngineConfig,
@@ -198,12 +216,18 @@ def _rule_verdict(
     if short_circuited:
         return (
             "dont_bother",
-            f"expected grade below 7 (p_below7={probs.p_below7} >= {config.below7_short_circuit})",
+            (
+                f"expected grade below {config.grades[0]} "
+                f"(p_below={probs.p_below} >= {config.below_short_circuit})"
+            ),
         )
-    if net_v10 < cost_total:
+    if net_v_top < cost_total:
         return (
             "dont_bother",
-            f"cost floor: even a PSA 10 ({_fmt(net_v10)}) is below the cost {_fmt(cost_total)}",
+            (
+                f"cost floor: even a PSA {config.top_grade} ({_fmt(net_v_top)}) is below "
+                f"the cost {_fmt(cost_total)}"
+            ),
         )
     if net_gain <= ZERO:
         return ("dont_bother", f"net gain {_fmt(net_gain)} is not positive")
@@ -217,8 +241,8 @@ def _rule_verdict(
 
 def _shocked_gain_and_verdict(
     probs: GradeProbs,
-    net_by_grade: dict[int, Decimal],
-    net_below7: Decimal,
+    net_by_grade: dict[str, Decimal],
+    net_below: Decimal,
     net_raw: Decimal,
     cost_total: Decimal,
     config: EngineConfig,
@@ -227,41 +251,32 @@ def _shocked_gain_and_verdict(
     cost_scale: Decimal = ONE,
 ) -> tuple[Decimal, str]:
     """Recompute net gain and rule verdict under one shock (possibly shifted probs)."""
-    graded = {g: net_by_grade[g] * value_scale for g in GRADES}
-    ev = sum((probs.p(g) * graded[g] for g in GRADES), ZERO) + probs.p_below7 * net_below7
+    graded = {g: net_by_grade[g] * value_scale for g in config.grades}
+    ev = sum((probs.p(g) * graded[g] for g in config.grades), ZERO) + probs.p_below * net_below
     cost = cost_total * cost_scale
     gain = ev - cost - net_raw
-    short = probs.p_below7 >= config.below7_short_circuit
-    verdict, _ = _rule_verdict(gain, graded[10], cost, probs, config, short)
+    short = probs.p_below >= config.below_short_circuit
+    verdict, _ = _rule_verdict(gain, graded[config.top_grade], cost, probs, config, short)
     return gain, verdict
 
 
-ADJACENT_SHIFTS = (
-    (10, 9),
-    (9, 8),
-    (8, 7),
-    (7, "below7"),
-)
+def _adjacent_shifts(grades: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """Adjacent outcome pairs, high to low, ending at the below lump."""
+    pairs = [(grades[i + 1], grades[i]) for i in range(len(grades) - 2, -1, -1)]
+    pairs.append((grades[0], "below"))
+    return tuple(pairs)
 
 
-def _shifted_probs(
-    probs: GradeProbs, src: int | str, dst: int | str, delta: Decimal
-) -> GradeProbs | None:
+def _shifted_probs(probs: GradeProbs, src: str, dst: str, delta: Decimal) -> GradeProbs | None:
     """Move delta mass src -> dst; None if src lacks the mass (skip, don't clamp)."""
-    p = {
-        7: probs.p7,
-        8: probs.p8,
-        9: probs.p9,
-        10: probs.p10,
-        "below7": probs.p_below7,
-    }
+    p = dict(probs.by_grade)
+    p["below"] = probs.p_below
     if p[src] < delta:
         return None
     p[src] -= delta
     p[dst] += delta
-    return GradeProbs(
-        p7=p[7], p8=p[8], p9=p[9], p10=p[10], p_below7=p["below7"], method=probs.method
-    )
+    below = p.pop("below")
+    return GradeProbs(by_grade=p, p_below=below, method=probs.method)
 
 
 def _view_sensitivity(view: ViewResult, probs: GradeProbs, config: EngineConfig) -> ViewSensitivity:
@@ -296,7 +311,7 @@ def _view_sensitivity(view: ViewResult, probs: GradeProbs, config: EngineConfig)
             gain, verdict = _shocked_gain_and_verdict(
                 probs,
                 view.net_by_grade,
-                view.net_below7,
+                view.net_below,
                 view.net_raw,
                 cost_total,
                 config,
@@ -313,7 +328,7 @@ def _view_sensitivity(view: ViewResult, probs: GradeProbs, config: EngineConfig)
             )
 
     delta = config.prob_shift
-    for src, dst in ADJACENT_SHIFTS:
+    for src, dst in _adjacent_shifts(config.grades):
         for a, b in ((src, dst), (dst, src)):
             shifted = _shifted_probs(probs, a, b, delta)
             if shifted is None:
@@ -321,7 +336,7 @@ def _view_sensitivity(view: ViewResult, probs: GradeProbs, config: EngineConfig)
             gain, verdict = _shocked_gain_and_verdict(
                 shifted,
                 view.net_by_grade,
-                view.net_below7,
+                view.net_below,
                 view.net_raw,
                 cost_total,
                 config,
@@ -332,7 +347,7 @@ def _view_sensitivity(view: ViewResult, probs: GradeProbs, config: EngineConfig)
         gain, verdict = _shocked_gain_and_verdict(
             probs,
             view.net_by_grade,
-            view.net_below7,
+            view.net_below,
             view.net_raw,
             cost_total,
             config,
@@ -398,19 +413,23 @@ def analyze_card(
 
     For a standalone card, call with n_cards=1 and the full solo shared pool.
     """
-    dv = declared_value(probs, values, config.alpha)
+    dv = declared_value(probs, values, config)
     tier = select_tier(book, scenario, dv, n_cards)
     cost = card_cost(book, tier, shared_share)
-    short = probs.p_below7 >= config.below7_short_circuit
-    upcharge_risk = values.gross("psa10") > tier.max_declared_value
+    short = probs.p_below >= config.below_short_circuit
+    upcharge_risk = values.gross(f"psa{config.top_grade}") > tier.max_declared_value
 
     stale = values.stale_kinds(as_of, config.staleness_days)
     sticker = _view("sticker", ZERO, probs, values, cost.total, config, short)
-    take_home = _view("take_home", config.sale_friction, probs, values, cost.total, config, short)
     sticker = _finalize_view(sticker, probs, config, stale)
-    take_home = _finalize_view(take_home, probs, config, stale)
+    take_home: ViewResult | None = None
+    if config.sale_friction > ZERO:
+        take_home = _view(
+            "take_home", config.sale_friction, probs, values, cost.total, config, short
+        )
+        take_home = _finalize_view(take_home, probs, config, stale)
 
-    if sticker.verdict == take_home.verdict:
+    if take_home is None or sticker.verdict == take_home.verdict:
         overall, why = sticker.verdict, sticker.reason
     else:
         overall = "hold"
@@ -445,7 +464,7 @@ def analyze_standalone(
     membership_already_held: bool = False,
 ) -> CardAnalysis:
     """Single-card analysis: a batch of one, carrying the whole shared pool."""
-    dv = declared_value(probs, values, config.alpha)
+    dv = declared_value(probs, values, config)
     tier = select_tier(book, scenario, dv, 1)
     shared = shared_costs(
         book,
@@ -484,17 +503,22 @@ class BatchAnalysis:
     shared: object  # SharedCosts (kept untyped to avoid a circular annotation)
     shares_by_card: dict[str, Decimal]
     total_cost: Decimal
-    total_ev_submit: dict[str, Decimal]  # per view
-    total_net_gain: dict[str, Decimal]  # per view
+    total_ev_submit: dict[str, Decimal]  # per view name
+    total_net_gain: dict[str, Decimal]  # per view name
     marginals: list[MarginalCard]
     tier_minimum_flags: list[str]
+    view_names: tuple[str, ...]
 
 
-VIEWS = ("sticker", "take_home")
+def _active_views(config: EngineConfig) -> tuple[str, ...]:
+    return ("sticker",) if config.sale_friction == ZERO else ("sticker", "take_home")
 
 
 def _view_of(analysis: CardAnalysis, view: str) -> ViewResult:
-    return analysis.sticker if view == "sticker" else analysis.take_home
+    if view == "sticker":
+        return analysis.sticker
+    assert analysis.take_home is not None
+    return analysis.take_home
 
 
 def _batch_card_analyses(
@@ -512,7 +536,7 @@ def _batch_card_analyses(
     tiers = {}
     total_dv = ZERO
     for cid in card_ids:
-        dv = declared_value(probs_by_card[cid], values_by_card[cid], config.alpha)
+        dv = declared_value(probs_by_card[cid], values_by_card[cid], config)
         tiers[cid] = select_tier(book, scenario, dv, n)
         total_dv += dv
     shared = shared_costs(
@@ -542,10 +566,12 @@ def _batch_card_analyses(
     return analyses, shared, shares_by_card
 
 
-def _totals(analyses: list[CardAnalysis]) -> tuple[Decimal, dict[str, Decimal], dict[str, Decimal]]:
+def _totals(
+    analyses: list[CardAnalysis], views: tuple[str, ...]
+) -> tuple[Decimal, dict[str, Decimal], dict[str, Decimal]]:
     total_cost = sum((a.cost.total for a in analyses), ZERO)
-    ev = {v: sum((_view_of(a, v).ev_submit for a in analyses), ZERO) for v in VIEWS}
-    gain = {v: sum((_view_of(a, v).net_gain for a in analyses), ZERO) for v in VIEWS}
+    ev = {v: sum((_view_of(a, v).ev_submit for a in analyses), ZERO) for v in views}
+    gain = {v: sum((_view_of(a, v).net_gain for a in analyses), ZERO) for v in views}
     return total_cost, ev, gain
 
 
@@ -588,6 +614,7 @@ def analyze_batch(
 ) -> BatchAnalysis:
     """Batch-aware analysis (SPEC §6): flat-split shared pool, per-card marginal
     classification via recompute-with-removal, and tier-minimum flags."""
+    views = _active_views(config)
     analyses, shared, shares_by_card = _batch_card_analyses(
         batch.card_ids,
         batch.pricing_scenario,
@@ -598,7 +625,7 @@ def analyze_batch(
         config,
         as_of,
     )
-    total_cost, total_ev, total_gain = _totals(analyses)
+    total_cost, total_ev, total_gain = _totals(analyses, views)
 
     marginals: list[MarginalCard] = []
     for cid in batch.card_ids:
@@ -625,14 +652,14 @@ def analyze_batch(
                 config,
                 as_of,
             )
-            _, _, gain_without = _totals(without)
+            _, _, gain_without = _totals(without, views)
         else:
-            gain_without = {v: ZERO for v in VIEWS}
-        standalone_gain = {v: _view_of(standalone, v).net_gain for v in VIEWS}
-        in_batch_gain = {v: _view_of(in_batch, v).net_gain for v in VIEWS}
-        removal_delta = {v: gain_without[v] - total_gain[v] for v in VIEWS}
+            gain_without = {v: ZERO for v in views}
+        standalone_gain = {v: _view_of(standalone, v).net_gain for v in views}
+        in_batch_gain = {v: _view_of(in_batch, v).net_gain for v in views}
+        removal_delta = {v: gain_without[v] - total_gain[v] for v in views}
         category = {}
-        for v in VIEWS:
+        for v in views:
             if removal_delta[v] > ZERO:
                 category[v] = "drag"
             elif standalone_gain[v] > ZERO:
@@ -652,7 +679,7 @@ def analyze_batch(
         )
 
     total_dv = sum(
-        (declared_value(probs_by_card[c], values_by_card[c], config.alpha) for c in batch.card_ids),
+        (declared_value(probs_by_card[c], values_by_card[c], config) for c in batch.card_ids),
         ZERO,
     )
     flags = _tier_minimum_flags(book, batch.pricing_scenario, len(batch.card_ids), total_dv, config)
@@ -666,4 +693,5 @@ def analyze_batch(
         total_net_gain=total_gain,
         marginals=marginals,
         tier_minimum_flags=flags,
+        view_names=views,
     )

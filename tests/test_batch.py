@@ -61,49 +61,52 @@ def test_amortization_invariant_exact():
 
 
 def test_golden_trio_batch(book, probs, values):
-    """Hand computation (current scenario, N=3, all on regular):
+    """Hand computation (current scenario, N=3, all on regular, friction 0):
 
-    Declared values: mewtwo 250.50; darkrai .30x75+.40x100+.20x170+.02x500
-    +.08x65 = 111.70; catcher .10x60+.30x85+.40x140+.15x320+.05x55 = 138.25.
-    Total DV 500.45 -> return band 1-4 items / <=2000 = 19.99.
+    Declared values:
+      mewtwo  301.50 (see golden EV test)
+      darkrai .30x80 + .30x100 + .20x120 + .15x170 + .01x500 + .04x65
+              = 24 + 30 + 24 + 25.50 + 5 + 2.60 = 111.10
+      catcher .10x65 + .25x85 + .25x105 + .25x140 + .10x320 + .05x55
+              = 6.50 + 21.25 + 26.25 + 35 + 32 + 2.75 = 123.75
+    Total DV 536.35 -> return band 1-4 items / <=2000 = 19.99.
     Shared S = 25.00 + 19.99 + 8.00 = 52.99; shares (1e-6 floor, remainder to
-    first) = [17.663334, 17.663333, 17.663333].
-    f_i each = 79.99 + 5.079365 (CT tax) + 0.30 = 85.369365.
+    first) = [17.663334, 17.663333, 17.663333]. f_i each = 85.369365.
 
-    Sticker net gains:
-      mewtwo  250.50 - (85.369365 + 17.663334) - 90 = 57.467301
-      darkrai 111.70 - (85.369365 + 17.663333) - 65 = -56.332698
-      catcher 138.25 - (85.369365 + 17.663333) - 55 = -19.782698
-      total = -18.648095
+    Net gains (EV(graded) equals DV since alpha = 1):
+      mewtwo  301.50 - (85.369365 + 17.663334) - 90 = 108.467301
+      darkrai 111.10 - (85.369365 + 17.663333) - 65 = -56.932698
+      catcher 123.75 - (85.369365 + 17.663333) - 55 = -34.282698
+      total = 17.251905;  total cost = 3 x 85.369365 + 52.99 = 309.098095
     """
     result = analyze_batch(_trio_batch(), probs, values, book, CONFIG, AS_OF)
+    assert result.view_names == ("sticker",)
     assert result.shared.total == Decimal("52.99")
     assert result.shares_by_card["nd-54-mewtwo-ex-full-art"] == Decimal("17.663334")
     assert result.shares_by_card["de-63-darkrai-ex-full-art"] == Decimal("17.663333")
     by_id = {a.card_id: a for a in result.analyses}
-    assert by_id["nd-54-mewtwo-ex-full-art"].sticker.net_gain == Decimal("57.467301")
-    assert by_id["de-63-darkrai-ex-full-art"].sticker.net_gain == Decimal("-56.332698")
-    assert by_id["de-111-pokemon-catcher-secret"].sticker.net_gain == Decimal("-19.782698")
-    assert result.total_net_gain["sticker"] == Decimal("-18.648095")
-    # Total cost = 3 x 85.369365 + 52.99 = 309.098095
+    assert by_id["nd-54-mewtwo-ex-full-art"].sticker.net_gain == Decimal("108.467301")
+    assert by_id["de-63-darkrai-ex-full-art"].sticker.net_gain == Decimal("-56.932698")
+    assert by_id["de-111-pokemon-catcher-secret"].sticker.net_gain == Decimal("-34.282698")
+    assert result.total_net_gain["sticker"] == Decimal("17.251905")
     assert result.total_cost == Decimal("309.098095")
 
 
 def test_golden_trio_marginals(book, probs, values):
     """Removing darkrai (N=2: shares 26.495 each):
-      mewtwo 250.50 - 111.864365 - 90 = 48.635635
-      catcher 138.25 - 111.864365 - 55 = -28.614365
-      total without darkrai = 20.021270
-      removal delta = 20.021270 - (-18.648095) = +38.669365 -> drag.
-    Mewtwo is standalone-positive (solo sticker gain 22.140635 > 0) and its
-    removal delta is negative (the batch is worse without it)."""
+      mewtwo  301.50 - 111.864365 - 90 = 99.635635
+      catcher 123.75 - 111.864365 - 55 = -43.114365
+      total without darkrai = 56.521270
+      removal delta = 56.521270 - 17.251905 = +39.269365 -> drag.
+    Mewtwo is standalone-positive (solo gain 73.140635 > 0) and the batch is
+    worse without it (negative removal delta)."""
     result = analyze_batch(_trio_batch(), probs, values, book, CONFIG, AS_OF)
     m = {m.card_id: m for m in result.marginals}
     darkrai = m["de-63-darkrai-ex-full-art"]
-    assert darkrai.removal_delta["sticker"] == Decimal("38.669365")
+    assert darkrai.removal_delta["sticker"] == Decimal("39.269365")
     assert darkrai.category["sticker"] == "drag"
     mewtwo = m["nd-54-mewtwo-ex-full-art"]
-    assert mewtwo.standalone_gain["sticker"] == Decimal("22.140635")
+    assert mewtwo.standalone_gain["sticker"] == Decimal("73.140635")
     assert mewtwo.removal_delta["sticker"] < 0
     assert mewtwo.category["sticker"] == "standalone"
     catcher = m["de-111-pokemon-catcher-secret"]
@@ -111,8 +114,8 @@ def test_golden_trio_marginals(book, probs, values):
 
 
 def test_drag_removal_raises_total(book, probs, values):
-    """Property: dropping every sticker-drag card leaves a batch whose total
-    sticker net gain is higher than the original."""
+    """Property: dropping every drag card leaves a batch whose total net gain
+    is higher than the original."""
     result = analyze_batch(_trio_batch(), probs, values, book, CONFIG, AS_OF)
     keep = tuple(m.card_id for m in result.marginals if m.category["sticker"] != "drag")
     assert keep  # mewtwo survives
@@ -145,17 +148,22 @@ def test_membership_added_when_bulk_tier_used(book):
     ids = tuple(f"clone-{i:02d}" for i in range(n))
     probs = {
         cid: GradeProbs(
-            p7=Decimal("0.25"),
-            p8=Decimal("0.40"),
-            p9=Decimal("0.25"),
-            p10=Decimal("0.05"),
-            p_below7=Decimal("0.05"),
+            by_grade={
+                "7.5": Decimal("0.25"),
+                "8": Decimal("0.40"),
+                "8.5": Decimal("0.15"),
+                "9": Decimal("0.10"),
+                "10": Decimal("0.05"),
+            },
+            p_below=Decimal("0.05"),
         )
         for cid in ids
     }
     snaps = load_snapshots(SAMPLE / "values.jsonl")
     template = freshest_values(snaps, ["de-46-zoroark-holo"])["de-46-zoroark-holo"]
-    values = {cid: CardValues(card_id=cid, by_kind=template.by_kind) for cid in ids}
+    values = {
+        cid: CardValues(card_id=cid, grades=CONFIG.grades, by_kind=template.by_kind) for cid in ids
+    }
     batch = Batch(
         name="bulk20",
         pricing_scenario="value_restored",

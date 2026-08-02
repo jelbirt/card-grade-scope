@@ -17,13 +17,73 @@ from gradescope.validate import (
     load_probabilities,
     load_snapshots,
 )
-from gradescope.values import freshest_values
+from gradescope.values import freshest_values, freshest_values_partial
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.version_option()
-def main() -> None:
-    """PSA grading decision-support: is this card worth grading?"""
+@click.pass_context
+def main(ctx: click.Context) -> None:
+    """PSA grading decision-support: is this card worth grading?
+
+    With no subcommand, shows the values table (raw vs per-grade values and
+    grading cost for every card in the inventory)."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(values)
+
+
+@main.command()
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Data directory (default: data/ if real data exists, else data/sample/).",
+)
+@click.option(
+    "--cost-book",
+    "cost_book_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Cost book YAML (default: newest in data/costs/).",
+)
+@click.option(
+    "--scenario",
+    type=click.Choice(["current", "value_restored"]),
+    default="current",
+    show_default=True,
+    help="Pricing scenario for the grading-cost columns.",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Config YAML overriding engine defaults (default: config.yaml at repo root).",
+)
+@click.option("-v", "--verbose", is_flag=True, help="Show snapshot sources and dates.")
+def values(
+    data_dir: Path | None,
+    cost_book_path: Path | None,
+    scenario: str,
+    config_path: Path | None,
+    verbose: bool,
+) -> None:
+    """Show each card's raw and per-grade values plus the cost to grade it.
+
+    The utility view: no probabilities needed; missing snapshots show as '-'."""
+    data = data_dir or paths.default_data_dir()
+    try:
+        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        inventory = load_inventory(data / "inventory.yaml")
+        snapshots = load_snapshots(data / "values.jsonl", config.grades)
+        book = load_cost_book(cost_book_path or paths.newest_cost_book())
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    by_card = freshest_values_partial(snapshots, list(inventory), config.grades)
+    click.echo(f"Inventory: {data / 'inventory.yaml'} ({len(inventory)} cards)")
+    click.echo(
+        report.render_values_table(inventory, by_card, book, config.grades, scenario, verbose)
+    )
 
 
 @main.command()
@@ -100,8 +160,8 @@ def analyze(
         raise click.ClickException(str(exc)) from exc
     try:
         inventory = load_inventory(data / "inventory.yaml")
-        probs = load_probabilities(data / "probabilities.yaml")
-        snapshots = load_snapshots(data / "values.jsonl")
+        probs = load_probabilities(data / "probabilities.yaml", config.grades)
+        snapshots = load_snapshots(data / "values.jsonl", config.grades)
         book = load_cost_book(cost_book_path or paths.newest_cost_book())
 
         if card_id is not None:
@@ -123,11 +183,11 @@ def analyze(
                         )
                     ]
                 )
-            values = freshest_values(snapshots, [card_id])[card_id]
+            card_values = freshest_values(snapshots, [card_id], config.grades)[card_id]
             analysis = analyze_standalone(
                 card_id,
                 probs[card_id],
-                values,
+                card_values,
                 book,
                 scenario or "current",
                 config,
@@ -146,7 +206,7 @@ def analyze(
         missing_probs = [c for c in batch.card_ids if c not in probs]
         if missing_probs:
             raise ValidationError([f"no grade probabilities for: {', '.join(missing_probs)}"])
-        values_map = freshest_values(snapshots, list(batch.card_ids))
+        values_map = freshest_values(snapshots, list(batch.card_ids), config.grades)
         if compare_scenarios:
             for scen in ("current", "value_restored"):
                 variant = replace(batch, pricing_scenario=scen)

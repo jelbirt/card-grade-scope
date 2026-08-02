@@ -11,7 +11,11 @@ Jake inventories a modest (tens of cards) well-preserved childhood Pokemon colle
 
 Success looks like: Jake runs one command against his data files and gets a report he could defend line-by-line to another collector, with zero AI involvement in the computation.
 
-**Non-goals (hard constraints, not revisitable):** no graders other than PSA; no per-grade value modeling below PSA 7; no network calls, API keys, or LLM dependencies in the core; no database/web app/service layer.
+**Non-goals (hard constraints, not revisitable):** no graders other than PSA; no per-grade value modeling below the configured grade floor; no network calls, API keys, or LLM dependencies in the core; no database/web app/service layer.
+
+**Grade set (revised at Jake's direction, 2026-08-01):** the modeled grade outcomes are configurable data, default **{7.5, 8, 8.5, 9, 10}** (PSA half grades exist up to 8.5; there is no PSA 9.5). Outcomes below the lowest configured grade are lumped as `below` with fallback value `α·V_raw`. A plain PSA 7 therefore lands in the lump (≈ raw value) unless 7 is added back to the config.
+
+**Utility-first (revised at Jake's direction, 2026-08-01):** the tool's default face is a plain **values view** — per card: raw value, value at each configured grade, and the cost to grade — requiring no probabilities. The EV/verdict machinery is an opt-in layer on top. Default `sale_friction = 0` (Jake is not selling today; sticker prices are *the* prices); setting `sale_friction > 0` in config re-enables the take-home view and the views-disagree rule for sell-scenario analysis.
 
 ## 2. Name and directory
 
@@ -34,7 +38,7 @@ uv run pytest
 
 All three must pass before every commit. (Wrapped in `checks.sh` at scaffold time, per repo-adopt.)
 
-CLI entry point: `uv run gradescope <subcommand>` — subcommands: `add` (guided entry), `import` (CSV), `analyze` (per-card + batch report), `snapshot` (record a value snapshot from prompts), `costs` (show active cost data).
+CLI entry point: `uv run gradescope <subcommand>` — subcommands: `values` (**default when no subcommand given**: per-card raw + per-grade values + grading cost table), `add` (guided entry), `import` (CSV), `analyze` (per-card + batch verdict report), `snapshot` (record a value snapshot from prompts), `costs` (show active cost data).
 
 ## 4. Project structure
 
@@ -97,16 +101,18 @@ card-grade-scope/
 
 ```yaml
 base1-4-charizard-holo-unl:
-  p7: 0.25
-  p8: 0.40
-  p9: 0.25
-  p10: 0.02
-  p_below7: 0.08
+  grades:                 # keys must match the configured grade set
+    "7.5": 0.25
+    "8": 0.40
+    "8.5": 0.15
+    "9": 0.12
+    "10": 0.02
+  below: 0.06             # lumped mass under the lowest configured grade
   method: guided          # guided | manual
   date: 2026-08-01
 ```
 
-Must sum to 1 within tolerance 1e-6; otherwise the engine **rejects with an explicit error** naming the card and the sum — never silently normalizes.
+Grade mass + `below` must sum to 1 within tolerance 1e-6; otherwise the engine **rejects with an explicit error** naming the card and the sum — never silently normalizes.
 
 **Capture mechanism (decision):** the stored record is always **explicit numbers Jake confirms**. The guided-entry flow asks condition questions (centering bands, corner sharpness, edge/surface/whitening severity), maps answers to a suggested prior from a small, documented lookup table shipped as data, shows the suggestion, and Jake accepts or edits it. Justification: keeps the engine deterministic and honest — the tool never pretends to be a calibrated grading model; the questionnaire is an anchoring aid, and `method: guided` records that provenance. Direct `manual` entry is always available.
 
@@ -157,7 +163,7 @@ Every entry carries `source.url` + `source.date_accessed`. Entries PSA doesn't p
  "recorded_by": "assisted-lookup"}
 ```
 
-`kind` enum: `raw | psa7 | psa8 | psa9 | psa10 | pop` (for `pop`, `value` is the population count at that grade, `pop_grade` field required). Values are **gross** sale prices as sources report them (see §7). Append-only: newer snapshots supersede for analysis, history is retained, and the engine warns when the freshest snapshot for any used `kind` is older than `staleness_days` (default **90**, configurable).
+`kind` enum: `raw | pop | psa<grade>` for each configured grade (default: `psa7.5 | psa8 | psa8.5 | psa9 | psa10`); for `pop`, `value` is the population count at that grade, `pop_grade` field required. Values are **gross** sale prices as sources report them (see §7). Append-only: newer snapshots supersede for analysis, history is retained, and the engine warns when the freshest snapshot for any used `kind` is older than `staleness_days` (default **90**, configurable).
 
 ### 5.5 Batch definition (`data/batches/<name>.yaml`)
 
@@ -206,12 +212,10 @@ Net_gain(i)  = EV_submit(i) − V_raw
 
 **Baseline (decision):** `V_raw` means **"sell raw today"** at the freshest raw snapshot. Hold-and-do-nothing is not modeled as a separate EV branch — it has no cash flow and identical card-value exposure; the **hold** verdict covers "positive but thin/fragile, revisit later." Documented in README.
 
-**Two-view model (decision, revised at Gate 0):** snapshots store **gross** values as sources report them, and the engine computes the full analysis twice, once per view:
+**Two-view model (decision, revised at Gate 0; friction default revised 2026-08-01):** snapshots store **gross** values as sources report them.
 
-- **Sticker view** (the headline): `sale_friction = 0` — values exactly as sources report them. This is the number you see first; it answers "at market prices, does grading add value?"
-- **Take-home view** (the breakdown): every `V_g`, `V_raw` (and hence `V_below7`) multiplied by `(1 − sale_friction)`, default **0.13** (eBay trading-card final value fee ≈13.25%; sources conflict slightly, configurable). This answers "if I actually sell on eBay, what lands in my pocket?" Friction is applied uniformly within the view — never mixed.
-
-Each view is internally consistent (same math, one knob differs). Costs `C_i` are identical in both — grading fees don't shrink with marketplace fees, which is exactly why a sticker-view "submit" can be a take-home "don't bother."
+- **Sticker view**: values exactly as sources report them. With the default `sale_friction = 0` this is the *only* view — Jake is holding, not selling, so marketplace fees are not a cost of grading (sales tax on the grading bill is, and stays in `C_i`).
+- **Take-home view** (opt-in): computed and reported only when `sale_friction > 0` is configured (eBay trading-card final value fee confirmed **13.25% + $0.30/order** for non-store sellers, applied to item + shipping + tax — so ~0.1325 is the suggested setting for a sell-scenario analysis). Every `V_g`, `V_raw` (hence `V_below7`) scales by `(1 − sale_friction)`; costs `C_i` identical in both views; views-disagree → overall hold applies only when both views exist.
 
 **Short-circuit:** if `p_below7 ≥ 0.5` (configurable `below7_short_circuit`), verdict is **don't bother** ("expected grade below 7") with no further modeling; the distribution is still shown.
 
@@ -302,7 +306,9 @@ Money as `Decimal` end-to-end (currency math; float EV drift would poison golden
 |---|---|
 | Name | `card-grade-scope` (confirmed at Gate 0) |
 | Stack | Python 3.12 + uv; PyYAML + click; pytest + ruff; Decimal money |
-| Net vs. gross | Two views: sticker (headline, friction 0) and take-home (`sale_friction` default 0.13); overall verdict = sticker unless views disagree → hold |
+| Grade set | Configurable data; default {7.5, 8, 8.5, 9, 10}; below-lowest lumped at α·V_raw |
+| Net vs. gross | **`sale_friction` default 0** (not selling today — sticker prices are the prices). Setting it > 0 (e.g. 0.1325 for eBay) re-enables the take-home view and views-disagree → hold |
+| Default face | `gradescope` with no subcommand = the `values` table (raw + per-grade values + grading cost); verdict machinery is opt-in via `analyze` |
 | Report shape | Summary table first (verdict + both Net_gains + break-even), per-card detail below |
 | Sales tax | CT 6.35% on grading fees + membership, on by default, marked estimate |
 | α (below-7 fallback) | 1.0, configurable |
