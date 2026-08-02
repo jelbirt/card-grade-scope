@@ -3,6 +3,7 @@
 from collections import Counter
 from dataclasses import replace
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import click
@@ -10,10 +11,15 @@ import click
 from gradescope import paths, report, store
 from gradescope.config import load_config
 from gradescope.engine import analyze_batch, analyze_standalone
+from gradescope.models import VARIANTS, Card, GradeProbs, GuidedPriorTable
 from gradescope.validate import (
+    CARD_NUMBER_RE,
+    ID_RE,
+    LANGUAGE_RE,
     ValidationError,
     load_batch,
     load_cost_book,
+    load_guided_priors,
     load_inventory,
     load_probabilities,
     load_snapshots,
@@ -224,6 +230,209 @@ def analyze(
         click.echo(report.render_batch(result))
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _prompt_valid(label: str, check, error: str, default: str | None = None) -> str:
+    """Prompt until `check` accepts the stripped input; explicit error each miss."""
+    while True:
+        kwargs = {"default": default, "show_default": bool(default)} if default is not None else {}
+        text = str(click.prompt(label, **kwargs)).strip()
+        if check(text):
+            return text
+        click.echo(f"  {error}")
+
+
+def _is_iso_date(text: str) -> bool:
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _prompt_probability(label: str) -> Decimal:
+    while True:
+        text = str(click.prompt(label)).strip()
+        try:
+            value = Decimal(text)
+        except InvalidOperation:
+            click.echo(f"  {text!r} is not a number")
+            continue
+        if not 0 <= value <= 1:
+            click.echo(f"  {value} outside [0, 1]")
+            continue
+        return value
+
+
+def _prompt_grade_range(label: str) -> tuple[int, int] | None:
+    while True:
+        text = str(click.prompt(label, default="", show_default=False)).strip()
+        if not text:
+            return None
+        parts = text.replace("-", " ").split()
+        try:
+            low, high = (int(p) for p in parts)
+        except ValueError:
+            click.echo("  want two integers like '7 9' (or blank to skip)")
+            continue
+        if not (1 <= low <= high <= 10):
+            click.echo(f"  want 1 <= low <= high <= 10, got {low} {high}")
+            continue
+        return (low, high)
+
+
+def _prompt_questionnaire(table: GuidedPriorTable) -> tuple[int, dict[str, str]]:
+    """Walk the condition questions; returns (total points, condition fields)."""
+    points = 0
+    condition: dict[str, str] = {}
+    click.echo("\nCondition questionnaire (drives the suggested prior):")
+    for question in table.questions:
+        click.echo(f"\n{question.prompt}:")
+        for idx, answer in enumerate(question.answers, start=1):
+            click.echo(f"  {idx}. {answer.key}")
+        pick = click.prompt("Choose", type=click.IntRange(1, len(question.answers)))
+        chosen = question.answers[pick - 1]
+        points += chosen.points
+        condition[question.field] = chosen.key
+    return points, condition
+
+
+def _prompt_prior(
+    table: GuidedPriorTable, points: int, grades: tuple[str, ...]
+) -> tuple[dict[str, Decimal], Decimal, str]:
+    """Show the suggested prior; accept -> method 'guided', edit -> 'manual'.
+
+    Either way the stored numbers are the ones the operator confirmed, and
+    they must sum to 1 — re-prompted until they do, never normalized."""
+    tier = table.tier_for(points)
+    click.echo(f"\nCondition points: {points} -> tier '{tier.name}'. Suggested prior:")
+    for grade in grades:
+        click.echo(f"  PSA {grade:>4}: {tier.by_grade[grade]}")
+    click.echo(f"  below {grades[0]}: {tier.p_below}")
+    if click.confirm("Accept this suggested prior?", default=True):
+        return dict(tier.by_grade), tier.p_below, "guided"
+    while True:
+        by_grade = {g: _prompt_probability(f"P(PSA {g})") for g in grades}
+        p_below = _prompt_probability(f"P(below {grades[0]})")
+        total = sum(by_grade.values(), p_below)
+        if abs(total - 1) <= GradeProbs.TOLERANCE:
+            return by_grade, p_below, "manual"
+        click.echo(f"  probabilities sum to {total}, not 1 — re-enter (this tool never normalizes)")
+
+
+@main.command()
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Data directory to write into (default: data/ if real data exists, else data/sample/).",
+)
+@click.option(
+    "--priors",
+    "priors_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Guided-prior lookup table (default: data/guided-priors.yaml).",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Config YAML overriding engine defaults (default: config.yaml at repo root).",
+)
+def add(data_dir: Path | None, priors_path: Path | None, config_path: Path | None) -> None:
+    """Add one card interactively: card fields, then a condition questionnaire
+    that suggests a grade-probability prior from the editable lookup table
+    (data/guided-priors.yaml). The stored record is always the numbers you
+    confirm — accepted suggestions are recorded as method: guided, edited
+    ones as method: manual. Existing ids are never overwritten without an
+    explicit confirmation (and a rewrite drops YAML comments)."""
+    data = data_dir or paths.default_data_dir()
+    inventory_path = data / "inventory.yaml"
+    probabilities_path = data / "probabilities.yaml"
+    try:
+        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        table = load_guided_priors(priors_path or paths.guided_priors(), config.grades)
+        inventory = load_inventory(inventory_path) if inventory_path.exists() else {}
+        probabilities = (
+            load_probabilities(probabilities_path, config.grades)
+            if probabilities_path.exists()
+            else {}
+        )
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    overwrite = False
+    while True:
+        card_id = _prompt_valid(
+            "Card id (lowercase slug)",
+            ID_RE.match,
+            "must be a lowercase slug [a-z0-9-]",
+        )
+        if card_id not in inventory:
+            break
+        if click.confirm(f"id '{card_id}' already exists in the inventory — overwrite it?"):
+            overwrite = True
+            break
+    name = _prompt_valid("Name", bool, "must not be empty")
+    set_name = _prompt_valid("Set name", bool, "must not be empty")
+    card_number = _prompt_valid(
+        "Card number (e.g. 4/102, 103/99)",
+        CARD_NUMBER_RE.match,
+        "not a recognized card number (e.g. '4/102', '103/99')",
+    )
+    variant = click.prompt("Variant", type=click.Choice(sorted(VARIANTS)))
+    language = _prompt_valid("Language", LANGUAGE_RE.match, "not ISO 639-1", default="en")
+
+    points, condition = _prompt_questionnaire(table)
+    notes = str(click.prompt("Condition notes (free text)", default="", show_default=False)).strip()
+    if notes:
+        condition["notes"] = notes
+    grade_range = _prompt_grade_range("Estimated grade range 'low high' (blank to skip)")
+    provenance = str(click.prompt("Provenance", default="", show_default=False)).strip()
+    entry_date = date.fromisoformat(
+        _prompt_valid(
+            "Date",
+            _is_iso_date,
+            "want YYYY-MM-DD",
+            default=date.today().isoformat(),  # noqa: DTZ011 — operator's calendar date
+        )
+    )
+
+    by_grade, p_below, method = _prompt_prior(table, points, config.grades)
+
+    card = Card(
+        id=card_id,
+        name=name,
+        set_name=set_name,
+        card_number=card_number,
+        variant=variant,
+        language=language,
+        condition=condition,
+        estimated_grade_range=grade_range,
+        provenance=provenance,
+        date_added=entry_date,
+    )
+    probs = GradeProbs(by_grade=by_grade, p_below=p_below, method=method, date=entry_date)
+
+    if overwrite:
+        click.echo(f"rewriting {inventory_path} (YAML comments in it are lost)")
+        cards = dict(inventory)
+        cards[card.id] = card
+        store.rewrite_inventory(inventory_path, list(cards.values()))
+    else:
+        store.append_cards(inventory_path, [card])
+    if card.id in probabilities:
+        click.echo(f"rewriting {probabilities_path} (YAML comments in it are lost)")
+        records = dict(probabilities)
+        records[card.id] = probs
+        store.rewrite_probabilities(probabilities_path, records)
+    else:
+        store.append_probability(probabilities_path, card.id, probs)
+    click.echo(f"\nwrote '{card.id}' (method: {method})")
+    click.echo(f"-> {inventory_path}")
+    click.echo(f"-> {probabilities_path}")
 
 
 @main.command("import")

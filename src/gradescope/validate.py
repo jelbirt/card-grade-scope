@@ -21,7 +21,11 @@ from gradescope.models import (
     CostBook,
     CostLine,
     GradeProbs,
+    GuidedAnswer,
+    GuidedPriorTable,
+    GuidedQuestion,
     MembershipTier,
+    PriorTier,
     ReturnShippingBand,
     SalesTax,
     ServiceLevel,
@@ -439,6 +443,152 @@ def load_probabilities(
     if errors:
         raise ValidationError(errors)
     return out
+
+
+# ------------------------------------------------------------- guided priors
+
+
+def load_guided_priors(path: Path, grades: tuple[str, ...] = DEFAULT_GRADES) -> GuidedPriorTable:
+    """Load the guided-entry lookup table (SPEC §5.2 capture mechanism).
+
+    Tier priors must match the configured grade set and sum to 1 exactly —
+    a table that disagrees with config.yaml is an error to fix in the data,
+    never something to normalize away."""
+    raw = yamlio.load_yaml(path)
+    errors: list[str] = []
+    if not isinstance(raw, dict):
+        raise ValidationError([_ctx(path, "top level", "expected a mapping")])
+
+    questions: list[GuidedQuestion] = []
+    questions_raw = raw.get("questions")
+    if not isinstance(questions_raw, dict) or not questions_raw:
+        errors.append(_ctx(path, "questions", "expected a non-empty mapping of field -> question"))
+        questions_raw = {}
+    for field_name, entry in questions_raw.items():
+        where = f"questions.{field_name}"
+        if not isinstance(entry, dict):
+            errors.append(_ctx(path, where, "expected a mapping with prompt + answers"))
+            continue
+        prompt = str(_need(entry, "prompt", errors, path, where) or "")
+        answers_raw = entry.get("answers")
+        if not isinstance(answers_raw, list) or not answers_raw:
+            errors.append(_ctx(path, where, "expected a non-empty 'answers' list"))
+            continue
+        answers: list[GuidedAnswer] = []
+        seen_keys: set[str] = set()
+        for idx, ans in enumerate(answers_raw):
+            a_where = f"{where}.answers[{idx}]"
+            if not isinstance(ans, dict):
+                errors.append(_ctx(path, a_where, "expected a mapping {key, points}"))
+                continue
+            key = str(_need(ans, "key", errors, path, a_where) or "")
+            points = ans.get("points")
+            if not isinstance(points, int) or isinstance(points, bool) or points < 0:
+                errors.append(
+                    _ctx(path, a_where, f"points {points!r} must be a non-negative integer")
+                )
+                continue
+            if key in seen_keys:
+                errors.append(_ctx(path, a_where, f"duplicate answer key {key!r}"))
+                continue
+            if key:
+                seen_keys.add(key)
+                answers.append(GuidedAnswer(key=key, points=points))
+        if len(answers) == len(answers_raw):
+            questions.append(
+                GuidedQuestion(field=str(field_name), prompt=prompt, answers=tuple(answers))
+            )
+
+    tiers: list[PriorTier] = []
+    tiers_raw = raw.get("tiers")
+    if not isinstance(tiers_raw, list) or not tiers_raw:
+        errors.append(_ctx(path, "tiers", "expected a non-empty list of tiers"))
+        tiers_raw = []
+    for idx, entry in enumerate(tiers_raw):
+        name = str(entry.get("name", "")) if isinstance(entry, dict) else ""
+        where = f"tiers[{idx}]" + (f" ({name})" if name else "")
+        if not isinstance(entry, dict):
+            errors.append(_ctx(path, where, "expected a mapping"))
+            continue
+        if not name:
+            errors.append(_ctx(path, where, "missing required field 'name'"))
+            continue
+        max_points = entry.get("max_points", "missing")
+        if max_points == "missing":
+            errors.append(_ctx(path, where, "missing 'max_points' (use null for the last tier)"))
+            continue
+        if max_points is not None and (
+            not isinstance(max_points, int) or isinstance(max_points, bool) or max_points < 0
+        ):
+            errors.append(
+                _ctx(path, where, f"max_points {max_points!r} must be a non-negative int or null")
+            )
+            continue
+        prior = entry.get("prior")
+        if not isinstance(prior, dict) or not isinstance(prior.get("grades"), dict):
+            errors.append(_ctx(path, where, "expected prior: {grades: {...}, below: ...}"))
+            continue
+        by_grade: dict[str, Decimal] = {}
+        bad = False
+        for key, v in prior["grades"].items():
+            label = canon_grade(key)
+            if label not in grades:
+                errors.append(
+                    _ctx(
+                        path,
+                        where,
+                        f"grade {label!r} is not in the configured grade set {list(grades)}",
+                    )
+                )
+                bad = True
+                continue
+            money = _as_money(v, errors, path, where)
+            if money is None or not (0 <= money <= 1):
+                errors.append(_ctx(path, where, f"grade {label}: probability {v!r} outside [0, 1]"))
+                bad = True
+                continue
+            by_grade[label] = money
+        missing = [g for g in grades if g not in by_grade]
+        if missing:
+            errors.append(
+                _ctx(path, where, f"missing probability for grade(s) {missing} — use 0 explicitly")
+            )
+            bad = True
+        below_raw = _need(prior, "below", errors, path, where)
+        below = _as_money(below_raw, errors, path, where) if below_raw is not None else None
+        if below is None or bad:
+            continue
+        if not (0 <= below <= 1):
+            errors.append(_ctx(path, where, f"below={below} outside [0, 1]"))
+            continue
+        total = sum(by_grade.values(), below)
+        if abs(total - 1) > GradeProbs.TOLERANCE:
+            errors.append(
+                _ctx(
+                    path,
+                    where,
+                    f"prior sums to {total}, not 1 (tolerance {GradeProbs.TOLERANCE}); "
+                    "fix the numbers — this tool never silently normalizes",
+                )
+            )
+            continue
+        tiers.append(PriorTier(name=name, max_points=max_points, by_grade=by_grade, p_below=below))
+
+    if tiers and len(tiers) == len(tiers_raw):
+        bounded = [t.max_points for t in tiers[:-1]]
+        if any(b is None for b in bounded):
+            errors.append(
+                _ctx(path, "tiers", "only the last tier may have max_points: null (catch-all)")
+            )
+        elif bounded != sorted(set(bounded)):
+            errors.append(_ctx(path, "tiers", "max_points must be strictly ascending"))
+        if tiers[-1].max_points is not None:
+            errors.append(
+                _ctx(path, "tiers", "the last tier must have max_points: null (catch-all)")
+            )
+    if errors:
+        raise ValidationError(errors)
+    return GuidedPriorTable(questions=tuple(questions), tiers=tuple(tiers))
 
 
 # ----------------------------------------------------------------- snapshots

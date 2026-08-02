@@ -1,0 +1,76 @@
+# Guided-entry prior lookup table (SPEC §5.2 capture mechanism).
+#
+# This is editable DATA, not code: `gradescope add` asks the condition
+# questions below, sums the points of the chosen answers, and suggests the
+# prior of the first tier whose max_points covers the total (the last tier,
+# with max_points: null, catches everything worse). The suggestion is an
+# anchoring aid only — the stored record is always numbers Jake confirms,
+# and `method: guided` records that provenance.
+#
+# Rules enforced at load (never silently fixed):
+#   - answer points are integers >= 0; answer keys unique per question
+#   - tier max_points strictly ascending, exactly the last tier is null
+#   - each tier's grades must exactly match the configured grade set
+#   - each tier's grades + below must sum to 1 (the tool never normalizes)
+#
+# The numbers below are deliberately conservative anchors for a
+# binder-stored childhood collection, not a calibrated grading model.
+
+questions:
+  centering:
+    prompt: "Front centering, eyeballed"
+    answers:
+      - {key: "55/45 or better", points: 0}
+      - {key: "about 60/40", points: 1}
+      - {key: "about 65/35", points: 2}
+      - {key: "70/30 or worse", points: 4}
+  corners:
+    prompt: "Corners under a loupe or strong light"
+    answers:
+      - {key: "all four sharp", points: 0}
+      - {key: "minor touch on one corner", points: 1}
+      - {key: "visible wear on two or more", points: 3}
+      - {key: "rounded or dinged", points: 5}
+  edges:
+    prompt: "Edges front and back"
+    answers:
+      - {key: "clean", points: 0}
+      - {key: "a nick or two", points: 1}
+      - {key: "visible chipping", points: 3}
+      - {key: "heavy wear", points: 5}
+  surface:
+    prompt: "Surface under glare (tilt the card)"
+    answers:
+      - {key: "clean", points: 0}
+      - {key: "a faint scratch or print line", points: 1}
+      - {key: "several scratches or clouding", points: 3}
+      - {key: "crease or deep scratch", points: 9}
+  whitening:
+    prompt: "Back-edge whitening"
+    answers:
+      - {key: "none", points: 0}
+      - {key: "light on back edges", points: 1}
+      - {key: "moderate", points: 3}
+      - {key: "heavy", points: 5}
+
+tiers:
+  - name: gem-candidate
+    max_points: 1
+    prior:
+      grades: {"7.5": 0.02, "8": 0.08, "8.5": 0.20, "9": 0.40, "10": 0.25}
+      below: 0.05
+  - name: mint-candidate
+    max_points: 4
+    prior:
+      grades: {"7.5": 0.08, "8": 0.22, "8.5": 0.30, "9": 0.25, "10": 0.07}
+      below: 0.08
+  - name: near-mint
+    max_points: 8
+    prior:
+      grades: {"7.5": 0.20, "8": 0.30, "8.5": 0.22, "9": 0.12, "10": 0.02}
+      below: 0.14
+  - name: played
+    max_points: null
+    prior:
+      grades: {"7.5": 0.25, "8": 0.20, "8.5": 0.10, "9": 0.04, "10": 0.01}
+      below: 0.40
