@@ -4,7 +4,9 @@ Every rejection is explicit and names file / entry / field. Nothing is
 silently normalized or skipped (SPEC hard rule).
 """
 
+import csv
 import re
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -158,6 +160,203 @@ def load_inventory(path: Path) -> dict[str, Card]:
     if errors:
         raise ValidationError(errors)
     return cards
+
+
+# ----------------------------------------------------------------- csv import
+
+CSV_REQUIRED_COLUMNS = ("id", "name", "set_name", "card_number", "variant")
+CSV_OPTIONAL_COLUMNS = (
+    "language",
+    "centering",
+    "corners",
+    "edges",
+    "surface",
+    "whitening",
+    "condition_notes",
+    "grade_low",
+    "grade_high",
+    "provenance",
+)
+CSV_COLUMNS = CSV_REQUIRED_COLUMNS + CSV_OPTIONAL_COLUMNS
+_CONDITION_COLUMNS = ("centering", "corners", "edges", "surface", "whitening")
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    """Outcome of parsing one import CSV: valid cards in file order, every
+    per-row message ('row N, column C: message', SPEC §5.6), and how many
+    rows those messages rejected (a row can carry several messages)."""
+
+    cards: tuple[Card, ...]
+    row_errors: tuple[str, ...]
+    rejected_rows: int
+
+
+def _row_error(errors: list[str], row: int, column: str | None, msg: str) -> None:
+    where = f"row {row}, column {column}" if column else f"row {row}"
+    errors.append(f"{where}: {msg}")
+
+
+def _csv_grade_bound(text: str, column: str, errors: list[str], row: int) -> int | None:
+    """Parse one grade bound; on failure, record the error and return None."""
+    try:
+        value = int(text)
+    except ValueError:
+        _row_error(errors, row, column, f"{text!r} is not an integer")
+        return None
+    if not 1 <= value <= 10:
+        _row_error(errors, row, column, f"{value} outside 1-10")
+        return None
+    return value
+
+
+def parse_import_csv(path: Path, existing_ids: set[str]) -> ImportResult:
+    """Parse a whole import CSV per SPEC §5.6. The full file is always read;
+    every invalid row produces a 'row N, column C: message' entry and is
+    skipped, valid rows come back as Cards. File-level problems (unreadable
+    header, unknown columns) raise ValidationError instead — there is no way
+    to trust any row without a trusted header.
+
+    Leading lines starting with '#' are citation comments and are skipped.
+    Row numbers count data rows, 1 = the first row after the header."""
+    with path.open(encoding="utf-8", newline="") as fh:
+        lines = fh.readlines()
+    body = 0
+    while body < len(lines) and lines[body].lstrip().startswith("#"):
+        body += 1
+    reader = csv.reader(lines[body:])
+    try:
+        header = next(reader)
+    except StopIteration:
+        raise ValidationError([_ctx(path, "header", "empty file — no header row")]) from None
+
+    file_errors: list[str] = []
+    missing_cols = [c for c in CSV_REQUIRED_COLUMNS if c not in header]
+    if missing_cols:
+        file_errors.append(_ctx(path, "header", f"missing required column(s) {missing_cols}"))
+    unknown_cols = [c for c in header if c not in CSV_COLUMNS]
+    if unknown_cols:
+        file_errors.append(
+            _ctx(
+                path,
+                "header",
+                f"unknown column(s) {unknown_cols} (allowed: {list(CSV_COLUMNS)}) — "
+                "a typoed column would silently drop its data",
+            )
+        )
+    duplicate_cols = sorted({c for c in header if header.count(c) > 1})
+    if duplicate_cols:
+        file_errors.append(_ctx(path, "header", f"duplicate column(s) {duplicate_cols}"))
+    if file_errors:
+        raise ValidationError(file_errors)
+
+    errors: list[str] = []
+    cards: list[Card] = []
+    rejected = 0
+    seen_ids: set[str] = set()
+    for row_num, raw_row in enumerate(reader, start=1):
+        if not raw_row:
+            continue  # blank line
+        if len(raw_row) != len(header):
+            _row_error(
+                errors,
+                row_num,
+                None,
+                f"expected {len(header)} fields, got {len(raw_row)}",
+            )
+            rejected += 1
+            continue
+        fields = dict(zip(header, raw_row, strict=True))
+        row_ok = True
+
+        card_id = (fields.get("id") or "").strip()
+        if not card_id:
+            _row_error(errors, row_num, "id", "missing required value")
+            row_ok = False
+        elif not ID_RE.match(card_id):
+            _row_error(errors, row_num, "id", f"{card_id!r} must be a lowercase slug [a-z0-9-]")
+            row_ok = False
+        elif card_id in seen_ids:
+            _row_error(errors, row_num, "id", f"duplicate id {card_id!r} (earlier in this file)")
+            row_ok = False
+        elif card_id in existing_ids:
+            _row_error(errors, row_num, "id", f"id {card_id!r} already exists in the inventory")
+            row_ok = False
+        if card_id:
+            # any occupied id blocks later duplicates, even if this row failed
+            seen_ids.add(card_id)
+
+        for column in ("name", "set_name", "card_number"):
+            if not (fields.get(column) or "").strip():
+                _row_error(errors, row_num, column, "missing required value")
+                row_ok = False
+        number = (fields.get("card_number") or "").strip()
+        if number and not CARD_NUMBER_RE.match(number):
+            _row_error(
+                errors,
+                row_num,
+                "card_number",
+                f"{number!r} not recognized (e.g. '4/102', '103/99')",
+            )
+            row_ok = False
+
+        variant = (fields.get("variant") or "").strip()
+        if not variant:
+            _row_error(errors, row_num, "variant", "missing required value")
+            row_ok = False
+        elif variant not in VARIANTS:
+            _row_error(
+                errors,
+                row_num,
+                "variant",
+                f"unknown variant {variant!r} (allowed: {sorted(VARIANTS)})",
+            )
+            row_ok = False
+
+        language = (fields.get("language") or "").strip() or "en"
+        if not LANGUAGE_RE.match(language):
+            _row_error(errors, row_num, "language", f"{language!r} is not ISO 639-1")
+            row_ok = False
+
+        low_text = (fields.get("grade_low") or "").strip()
+        high_text = (fields.get("grade_high") or "").strip()
+        grange: tuple[int, int] | None = None
+        if bool(low_text) != bool(high_text):
+            missing_col = "grade_high" if low_text else "grade_low"
+            _row_error(errors, row_num, missing_col, "required when the other bound is given")
+            row_ok = False
+        elif low_text and high_text:
+            low = _csv_grade_bound(low_text, "grade_low", errors, row_num)
+            high = _csv_grade_bound(high_text, "grade_high", errors, row_num)
+            if low is None or high is None:
+                row_ok = False
+            elif low > high:
+                _row_error(errors, row_num, "grade_low", f"low {low} > high {high}")
+                row_ok = False
+            else:
+                grange = (low, high)
+
+        if not row_ok:
+            rejected += 1
+            continue
+        condition = {c: fields[c].strip() for c in _CONDITION_COLUMNS if fields.get(c, "").strip()}
+        notes = (fields.get("condition_notes") or "").strip()
+        if notes:
+            condition["notes"] = notes
+        cards.append(
+            Card(
+                id=card_id,
+                name=fields["name"].strip(),
+                set_name=fields["set_name"].strip(),
+                card_number=number,
+                variant=variant,
+                language=language,
+                condition=condition,
+                estimated_grade_range=grange,
+                provenance=(fields.get("provenance") or "").strip(),
+            )
+        )
+    return ImportResult(cards=tuple(cards), row_errors=tuple(errors), rejected_rows=rejected)
 
 
 # ------------------------------------------------------------- probabilities

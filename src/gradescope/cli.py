@@ -1,12 +1,13 @@
 """CLI entry point. Subcommands land per tasks/plan.md."""
 
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
 import click
 
-from gradescope import paths, report
+from gradescope import paths, report, store
 from gradescope.config import load_config
 from gradescope.engine import analyze_batch, analyze_standalone
 from gradescope.validate import (
@@ -16,6 +17,7 @@ from gradescope.validate import (
     load_inventory,
     load_probabilities,
     load_snapshots,
+    parse_import_csv,
 )
 from gradescope.values import freshest_values, freshest_values_partial
 
@@ -222,6 +224,53 @@ def analyze(
         click.echo(report.render_batch(result))
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+@main.command("import")
+@click.argument("csv_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--data-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Data directory whose inventory.yaml receives the cards "
+    "(default: data/ if real data exists, else data/sample/).",
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    default=False,
+    help="Import nothing unless every row is valid.",
+)
+@click.pass_context
+def import_cards(ctx: click.Context, csv_file: Path, data_dir: Path | None, strict: bool) -> None:
+    """Bulk-import cards from a CSV file into the inventory (SPEC §5.6).
+
+    The whole file is always parsed: every invalid row is reported as
+    'row N, column C: message' and skipped; valid rows are appended to
+    inventory.yaml. Row numbers count data rows, starting at 1 after the
+    header; leading '#' lines are allowed for source citations. Exits
+    nonzero if any row was rejected."""
+    data = data_dir or paths.default_data_dir()
+    inventory_path = data / "inventory.yaml"
+    try:
+        existing = load_inventory(inventory_path) if inventory_path.exists() else {}
+        result = parse_import_csv(csv_file, set(existing))
+    except ValidationError as exc:
+        raise click.ClickException(str(exc)) from exc
+    for err in result.row_errors:
+        click.echo(f"{csv_file}: {err}", err=True)
+    if strict and result.rejected_rows:
+        click.echo(f"--strict: {result.rejected_rows} row(s) failed validation; nothing imported")
+        ctx.exit(1)
+    if result.cards:
+        store.append_cards(inventory_path, list(result.cards))
+    click.echo(f"imported {len(result.cards)}, rejected {result.rejected_rows}")
+    for set_name, count in sorted(Counter(c.set_name for c in result.cards).items()):
+        click.echo(f"  {set_name}: {count}")
+    if result.cards:
+        click.echo(f"-> {inventory_path}")
+    if result.rejected_rows:
+        ctx.exit(1)
 
 
 @main.command()

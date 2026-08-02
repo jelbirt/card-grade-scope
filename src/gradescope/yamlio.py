@@ -45,3 +45,45 @@ def load_jsonl(path: Path) -> list[tuple[int, object]]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"line {lineno}: not valid JSON ({exc.msg})") from exc
     return rows
+
+
+class DecimalSafeDumper(yaml.SafeDumper):
+    """SafeDumper whose Decimal values are written as plain numeric scalars
+    built from their exact text — the mirror of DecimalSafeLoader."""
+
+
+def _represent_decimal(dumper: DecimalSafeDumper, data: Decimal) -> yaml.ScalarNode:
+    return dumper.represent_scalar("tag:yaml.org,2002:float", str(data))
+
+
+DecimalSafeDumper.add_representer(Decimal, _represent_decimal)
+
+
+def dump_yaml(data: object) -> str:
+    """Serialize for on-disk data files: key order preserved, unicode kept,
+    Decimals round-tripping exactly through DecimalSafeLoader."""
+    return yaml.dump(
+        data,
+        Dumper=DecimalSafeDumper,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+
+
+def dump_json_line(obj: dict) -> str:
+    """One JSONL line. Decimals are emitted as their exact literal text —
+    json.dumps would need float(), which is banned for money."""
+
+    def value(v: object) -> str:
+        if isinstance(v, bool) or v is None:
+            raise TypeError(f"unsupported JSONL value {v!r}")
+        if isinstance(v, str):
+            return json.dumps(v, ensure_ascii=False)
+        if isinstance(v, int | Decimal):
+            return str(v)
+        if isinstance(v, dict):
+            return "{" + ", ".join(f"{json.dumps(str(k))}: {value(x)}" for k, x in v.items()) + "}"
+        raise TypeError(f"unsupported JSONL value {v!r}")
+
+    return value(obj) + "\n"

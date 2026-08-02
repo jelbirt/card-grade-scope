@@ -1,0 +1,119 @@
+# Complete Dark Explorers (BW5) English set checklist — public data, import fixture.
+# 108 numbered cards + secret rares 109/108-111/108 = 111 rows.
+# Sources (read-and-cite, accessed 2026-08-02):
+#   https://bulbapedia.bulbagarden.net/wiki/Dark_Explorers_(TCG)
+#   https://pkmncards.com/set/dark-explorers/
+# variant mapping: Pokemon-EX -> ex; full-art EX (103-108) -> full_art;
+#   secret rare (109-111) -> secret_rare; rare holo -> holo; everything else -> unlimited.
+id,name,set_name,card_number,variant
+de-001-bulbasaur,Bulbasaur,Dark Explorers,1/108,unlimited
+de-002-ivysaur,Ivysaur,Dark Explorers,2/108,unlimited
+de-003-venusaur,Venusaur,Dark Explorers,3/108,holo
+de-004-scyther,Scyther,Dark Explorers,4/108,unlimited
+de-005-carnivine,Carnivine,Dark Explorers,5/108,unlimited
+de-006-leafeon,Leafeon,Dark Explorers,6/108,unlimited
+de-007-dwebble,Dwebble,Dark Explorers,7/108,unlimited
+de-008-crustle,Crustle,Dark Explorers,8/108,unlimited
+de-009-karrablast,Karrablast,Dark Explorers,9/108,unlimited
+de-010-shelmet,Shelmet,Dark Explorers,10/108,unlimited
+de-011-accelgor,Accelgor,Dark Explorers,11/108,unlimited
+de-012-flareon,Flareon,Dark Explorers,12/108,unlimited
+de-013-entei-ex,Entei-EX,Dark Explorers,13/108,ex
+de-014-torchic,Torchic,Dark Explorers,14/108,unlimited
+de-015-torchic,Torchic,Dark Explorers,15/108,unlimited
+de-016-combusken,Combusken,Dark Explorers,16/108,unlimited
+de-017-blaziken,Blaziken,Dark Explorers,17/108,holo
+de-018-torkoal,Torkoal,Dark Explorers,18/108,unlimited
+de-019-heatmor,Heatmor,Dark Explorers,19/108,unlimited
+de-020-larvesta,Larvesta,Dark Explorers,20/108,unlimited
+de-021-larvesta,Larvesta,Dark Explorers,21/108,unlimited
+de-022-volcarona,Volcarona,Dark Explorers,22/108,holo
+de-023-slowpoke,Slowpoke,Dark Explorers,23/108,unlimited
+de-024-slowbro,Slowbro,Dark Explorers,24/108,unlimited
+de-025-vaporeon,Vaporeon,Dark Explorers,25/108,unlimited
+de-026-kyogre-ex,Kyogre-EX,Dark Explorers,26/108,ex
+de-027-piplup,Piplup,Dark Explorers,27/108,unlimited
+de-028-prinplup,Prinplup,Dark Explorers,28/108,unlimited
+de-029-empoleon,Empoleon,Dark Explorers,29/108,holo
+de-030-glaceon,Glaceon,Dark Explorers,30/108,unlimited
+de-031-tympole,Tympole,Dark Explorers,31/108,unlimited
+de-032-palpitoad,Palpitoad,Dark Explorers,32/108,unlimited
+de-033-vanillite,Vanillite,Dark Explorers,33/108,unlimited
+de-034-vanillish,Vanillish,Dark Explorers,34/108,unlimited
+de-035-ducklett,Ducklett,Dark Explorers,35/108,unlimited
+de-036-swanna,Swanna,Dark Explorers,36/108,unlimited
+de-037-jolteon,Jolteon,Dark Explorers,37/108,unlimited
+de-038-raikou-ex,Raikou-EX,Dark Explorers,38/108,ex
+de-039-plusle,Plusle,Dark Explorers,39/108,unlimited
+de-040-minun,Minun,Dark Explorers,40/108,unlimited
+de-041-joltik,Joltik,Dark Explorers,41/108,unlimited
+de-042-joltik,Joltik,Dark Explorers,42/108,unlimited
+de-043-galvantula,Galvantula,Dark Explorers,43/108,unlimited
+de-044-tynamo,Tynamo,Dark Explorers,44/108,unlimited
+de-045-tynamo,Tynamo,Dark Explorers,45/108,unlimited
+de-046-eelektrik,Eelektrik,Dark Explorers,46/108,unlimited
+de-047-eelektross,Eelektross,Dark Explorers,47/108,holo
+de-048-espeon,Espeon,Dark Explorers,48/108,unlimited
+de-049-slowking,Slowking,Dark Explorers,49/108,unlimited
+de-050-woobat,Woobat,Dark Explorers,50/108,unlimited
+de-051-yamask,Yamask,Dark Explorers,51/108,unlimited
+de-052-cofagrigus,Cofagrigus,Dark Explorers,52/108,unlimited
+de-053-aerodactyl,Aerodactyl,Dark Explorers,53/108,unlimited
+de-054-groudon-ex,Groudon-EX,Dark Explorers,54/108,ex
+de-055-drilbur,Drilbur,Dark Explorers,55/108,unlimited
+de-056-excadrill,Excadrill,Dark Explorers,56/108,unlimited
+de-057-excadrill,Excadrill,Dark Explorers,57/108,unlimited
+de-058-timburr,Timburr,Dark Explorers,58/108,unlimited
+de-059-gurdurr,Gurdurr,Dark Explorers,59/108,unlimited
+de-060-umbreon,Umbreon,Dark Explorers,60/108,unlimited
+de-061-umbreon,Umbreon,Dark Explorers,61/108,unlimited
+de-062-sableye,Sableye,Dark Explorers,62/108,unlimited
+de-063-darkrai-ex,Darkrai-EX,Dark Explorers,63/108,ex
+de-064-sandile,Sandile,Dark Explorers,64/108,unlimited
+de-065-krokorok,Krokorok,Dark Explorers,65/108,unlimited
+de-066-krookodile,Krookodile,Dark Explorers,66/108,holo
+de-067-scraggy,Scraggy,Dark Explorers,67/108,unlimited
+de-068-scrafty,Scrafty,Dark Explorers,68/108,unlimited
+de-069-zorua,Zorua,Dark Explorers,69/108,unlimited
+de-070-zorua,Zorua,Dark Explorers,70/108,unlimited
+de-071-zoroark,Zoroark,Dark Explorers,71/108,unlimited
+de-072-bisharp,Bisharp,Dark Explorers,72/108,unlimited
+de-073-vullaby,Vullaby,Dark Explorers,73/108,unlimited
+de-074-escavalier,Escavalier,Dark Explorers,74/108,unlimited
+de-075-klink,Klink,Dark Explorers,75/108,unlimited
+de-076-klang,Klang,Dark Explorers,76/108,unlimited
+de-077-klinklang,Klinklang,Dark Explorers,77/108,holo
+de-078-pawniard,Pawniard,Dark Explorers,78/108,unlimited
+de-079-bisharp,Bisharp,Dark Explorers,79/108,unlimited
+de-080-chansey,Chansey,Dark Explorers,80/108,unlimited
+de-081-chansey,Chansey,Dark Explorers,81/108,unlimited
+de-082-blissey,Blissey,Dark Explorers,82/108,holo
+de-083-eevee,Eevee,Dark Explorers,83/108,unlimited
+de-084-eevee,Eevee,Dark Explorers,84/108,unlimited
+de-085-chatot,Chatot,Dark Explorers,85/108,unlimited
+de-086-lillipup,Lillipup,Dark Explorers,86/108,unlimited
+de-087-herdier,Herdier,Dark Explorers,87/108,unlimited
+de-088-stoutland,Stoutland,Dark Explorers,88/108,unlimited
+de-089-haxorus,Haxorus,Dark Explorers,89/108,holo
+de-090-tornadus-ex,Tornadus-EX,Dark Explorers,90/108,ex
+de-091-cheren,Cheren,Dark Explorers,91/108,unlimited
+de-092-dark-claw,Dark Claw,Dark Explorers,92/108,unlimited
+de-093-dark-patch,Dark Patch,Dark Explorers,93/108,unlimited
+de-094-enhanced-hammer,Enhanced Hammer,Dark Explorers,94/108,unlimited
+de-095-hooligans-jim-cas,Hooligans Jim & Cas,Dark Explorers,95/108,unlimited
+de-096-n,N,Dark Explorers,96/108,unlimited
+de-097-old-amber-aerodactyl,Old Amber Aerodactyl,Dark Explorers,97/108,unlimited
+de-098-professor-juniper,Professor Juniper,Dark Explorers,98/108,unlimited
+de-099-random-receiver,Random Receiver,Dark Explorers,99/108,unlimited
+de-100-rare-candy,Rare Candy,Dark Explorers,100/108,unlimited
+de-101-twist-mountain,Twist Mountain,Dark Explorers,101/108,unlimited
+de-102-ultra-ball,Ultra Ball,Dark Explorers,102/108,unlimited
+de-103-entei-ex,Entei-EX,Dark Explorers,103/108,full_art
+de-104-kyogre-ex,Kyogre-EX,Dark Explorers,104/108,full_art
+de-105-raikou-ex,Raikou-EX,Dark Explorers,105/108,full_art
+de-106-groudon-ex,Groudon-EX,Dark Explorers,106/108,full_art
+de-107-darkrai-ex,Darkrai-EX,Dark Explorers,107/108,full_art
+de-108-tornadus-ex,Tornadus-EX,Dark Explorers,108/108,full_art
+de-109-gardevoir,Gardevoir,Dark Explorers,109/108,secret_rare
+de-110-archeops,Archeops,Dark Explorers,110/108,secret_rare
+de-111-pokemon-catcher,Pokémon Catcher,Dark Explorers,111/108,secret_rare
