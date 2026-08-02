@@ -165,7 +165,12 @@ def analyze(
     compare_scenarios: bool,
     config_path: Path | None,
 ) -> None:
-    """Analyze one card standalone (--card) or a whole submission (--batch)."""
+    """Analyze one card standalone (--card) or a whole submission (--batch).
+
+    The opt-in verdict layer: EV, break-even, sensitivity, verdicts. Every
+    analyzed card needs grade probabilities (gradescope add, or edit
+    probabilities.yaml) and value snapshots for raw + every configured grade;
+    the plain values view needs neither."""
     if (card_id is None) == (batch_name is None):
         raise click.UsageError("pass exactly one of --card or --batch")
     data = data_dir or paths.default_data_dir()
