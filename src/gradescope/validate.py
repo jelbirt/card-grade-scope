@@ -75,15 +75,20 @@ def _as_date(value: object, errors: list[str], path: Path, where: str) -> date |
 
 
 def _as_money(value: object, errors: list[str], path: Path, where: str) -> Decimal | None:
+    # NaN/Infinity are valid Decimal syntax but poison later comparisons
+    # (ordering a NaN raises InvalidOperation), so reject them here.
     if isinstance(value, Decimal):
-        return value
-    if isinstance(value, int) and not isinstance(value, bool):
+        if value.is_finite():
+            return value
+    elif isinstance(value, int) and not isinstance(value, bool):
         return Decimal(value)
-    if isinstance(value, str):
+    elif isinstance(value, str):
         try:
-            return Decimal(value)
+            parsed = Decimal(value)
         except ArithmeticError:
-            pass
+            parsed = None
+        if parsed is not None and parsed.is_finite():
+            return parsed
     errors.append(_ctx(path, where, f"invalid number {value!r}"))
     return None
 
@@ -660,7 +665,9 @@ def scan_snapshots(
                 continue
             spread = Spread(low=low, high=high)
         n_comps = obj.get("n_comps")
-        if n_comps is not None and (not isinstance(n_comps, int) or n_comps < 0):
+        if n_comps is not None and (
+            not isinstance(n_comps, int) or isinstance(n_comps, bool) or n_comps < 0
+        ):
             errors.append(_ctx(path, where, f"n_comps {n_comps!r} must be a non-negative integer"))
             continue
         out.append(

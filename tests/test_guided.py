@@ -262,3 +262,36 @@ def test_prior_table_structure_rejections(tmp_path):
     with pytest.raises(ValidationError) as exc:
         load_guided_priors(p)
     assert "must be a non-negative integer" in str(exc.value)
+
+
+def test_orphaned_probability_record_needs_confirm(tmp_path):
+    """Review finding 3: an id present only in probabilities.yaml (orphan)
+    must not be silently rewritten — explicit confirm, like inventory."""
+    data = _data_dir(tmp_path)
+    (data / "probabilities.yaml").write_text(
+        "test-mewtwo:\n"
+        "  grades:\n"
+        "    '7.5': 0.10\n"
+        "    '8': 0.30\n"
+        "    '8.5': 0.25\n"
+        "    '9': 0.25\n"
+        "    '10': 0.05\n"
+        "  below: 0.05\n"
+        "  method: manual\n",
+        encoding="utf-8",
+    )
+    # decline the orphan overwrite, pick a fresh id instead
+    session = ["test-mewtwo", "n", "test-fresh", *PRISTINE_SESSION[1:]]
+    result = _add(data, session)
+    assert result.exit_code == 0, result.output
+    assert "already has probabilities recorded" in result.output
+    probs = load_probabilities(data / "probabilities.yaml")
+    assert set(probs) == {"test-mewtwo", "test-fresh"}
+    assert probs["test-mewtwo"].method == "manual"  # orphan untouched
+
+    # confirming the overwrite replaces the orphan record
+    session = ["test-mewtwo", "y", *PRISTINE_SESSION[1:]]
+    result = _add(data, session)
+    assert result.exit_code == 0, result.output
+    probs = load_probabilities(data / "probabilities.yaml")
+    assert probs["test-mewtwo"].method == "guided"

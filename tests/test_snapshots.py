@@ -177,3 +177,49 @@ def test_scan_snapshots_never_raises_on_bad_lines(tmp_path):
     snaps, errors = scan_snapshots(f)
     assert len(snaps) == 1 and len(errors) == 1
     assert "line 1" in errors[0]
+
+
+# ------------------------------------------------- review-pass regressions
+
+
+def test_nan_and_infinity_rejected_not_crashing(tmp_path):
+    """Review finding 1: NaN/Infinity parse as Decimal but poison comparisons;
+    the linter must report them, never raise."""
+    f = tmp_path / "values.jsonl"
+    f.write_text(
+        '{"card_id": "x", "kind": "raw", "value": "nan", "currency": "USD", '
+        '"source_name": "s", "source_url": "u", "date_observed": "2026-01-01"}\n'
+        '{"card_id": "x", "kind": "raw", "value": 1, "currency": "USD", '
+        '"source_name": "s", "source_url": "u", "date_observed": "2026-01-01", '
+        '"spread": {"low": "nan", "high": 5}}\n'
+        '{"card_id": "x", "kind": "raw", "value": "Infinity", "currency": "USD", '
+        '"source_name": "s", "source_url": "u", "date_observed": "2026-01-01"}\n',
+        encoding="utf-8",
+    )
+    snaps, errors = scan_snapshots(f)  # must not raise
+    assert not snaps
+    assert len(errors) == 4  # the spread line reports both the number and the spread
+    assert "line 1" in errors[0] and "invalid number" in errors[0]
+
+
+def test_nan_at_value_prompt_reprompts(tmp_path):
+    """Review finding 1 (prompt side): 'nan' at a money prompt re-prompts."""
+    data = _data_dir(tmp_path)
+    session = list(SESSION)
+    session[2:3] = ["nan", "140.00"]  # bad value first, then a good one
+    result = _snapshot(data, session)
+    assert result.exit_code == 0, result.output
+    assert "'nan' is not a number" in result.output
+    assert load_snapshots(data / "values.jsonl")[0].value == Decimal("140.00")
+
+
+def test_boolean_n_comps_rejected(tmp_path):
+    """Review finding 2: JSON true must not pass the integer n_comps check."""
+    f = tmp_path / "values.jsonl"
+    f.write_text(
+        VALID_LINE.replace(', "date_observed"', ', "n_comps": true, "date_observed"'),
+        encoding="utf-8",
+    )
+    snaps, errors = scan_snapshots(f)
+    assert not snaps
+    assert len(errors) == 1 and "n_comps" in errors[0]

@@ -266,6 +266,9 @@ def _prompt_probability(label: str) -> Decimal:
         try:
             value = Decimal(text)
         except InvalidOperation:
+            value = None
+        # NaN/Infinity parse as Decimal but poison comparisons — same rejection
+        if value is None or not value.is_finite():
             click.echo(f"  {text!r} is not a number")
             continue
         if not 0 <= value <= 1:
@@ -380,11 +383,19 @@ def add(data_dir: Path | None, priors_path: Path | None, config_path: Path | Non
             ID_RE.match,
             "must be a lowercase slug [a-z0-9-]",
         )
-        if card_id not in inventory:
-            break
-        if click.confirm(f"id '{card_id}' already exists in the inventory — overwrite it?"):
-            overwrite = True
-            break
+        if card_id in inventory:
+            if click.confirm(f"id '{card_id}' already exists in the inventory — overwrite it?"):
+                overwrite = True
+                break
+            continue
+        if card_id in probabilities:
+            # orphaned probability record (id no longer in the inventory)
+            if click.confirm(
+                f"id '{card_id}' already has probabilities recorded — overwrite them?"
+            ):
+                break
+            continue
+        break
     name = _prompt_valid("Name", bool, "must not be empty")
     set_name = _prompt_valid("Set name", bool, "must not be empty")
     card_number = _prompt_valid(
@@ -517,6 +528,9 @@ def _prompt_money(label: str, allow_blank: bool = False) -> Decimal | None:
         try:
             value = Decimal(text)
         except InvalidOperation:
+            value = None
+        # NaN/Infinity parse as Decimal but poison comparisons — same rejection
+        if value is None or not value.is_finite():
             click.echo(f"  {text!r} is not a number")
             continue
         if value < 0:
