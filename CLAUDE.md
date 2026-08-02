@@ -29,6 +29,14 @@ Green before **every** commit. Changing `checks.sh` means updating this section 
 - `SKIP_CHECKS=1 git commit ...` — skip the checks.sh run (e.g. docs-only emergency; rare).
 - `ALLOW_MAIN_COMMIT=1 git commit ...` — permit a commit on main (bootstrap/scaffold class only).
 
+## Publication intent
+
+The GitHub repo is **private for now but intended to go public** once finished. Jake's real
+collection data must never be publishable: it is gitignored, lives only in the main checkout,
+and must never appear in git history, commit messages, PR bodies, issues, or CI logs. Refer to
+cards from Jake's real inventory generically in written artifacts. Before flipping to public:
+run the pre-publication sweep in tasks/todo.md.
+
 ## Pen registry (shared mutable state)
 
 - **Real collection data** (`data/inventory.yaml`, `data/probabilities.yaml`, append-only

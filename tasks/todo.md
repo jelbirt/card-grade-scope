@@ -2,7 +2,14 @@
 
 Source of truth for task detail: [tasks/plan.md](plan.md). Status: Gate 1 approved; building Phase 1.
 
-Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md). No GitHub remote yet — ask Jake at PR #1 handoff.
+Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md).
+Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended public later** (Jake, 2026-08-01).
+
+## Pre-publication sweep (before flipping the repo public)
+- [ ] `git log --all --diff-filter=A --name-only` shows nothing under `data/` beyond `data/costs/` and `data/sample/`
+- [ ] Grep history and docs for real-inventory specifics (condition/provenance of Jake's actual copies), none present
+- [ ] PR bodies / issues / CI logs contain no real-data output (analysis runs on real data happen locally only)
+- [ ] README states the sample data is synthetic
 
 ## Scaffold
 - [x] Run repo-adopt (checks.sh, commit guard, worktree scripts, CI, PR template, repo CLAUDE.md)
