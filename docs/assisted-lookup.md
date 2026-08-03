@@ -17,6 +17,13 @@ The rules that make this defensible:
    snapshot file and checked with `gradescope validate-snapshots`; the engine only ever
    reads validated files. A human with a text editor can produce byte-identical data.
 
+**The session needs a real browser.** The useful price sources refuse server-side/
+programmatic fetching (Cloudflare 403s), so a text-only "web-enabled LLM" mostly can't
+read them. What works, verified in practice: either you browsing with the session
+narrating what to record, or an assistant that drives *your actual browser session*
+(e.g. a browser-extension integration), reading pages at human pace. That is still
+browse-read-cite — same pages a human sees, same ToS posture, one page at a time.
+
 ## Where to look, per value kind
 
 | Value | Primary source | Corroboration | Record |
@@ -39,13 +46,37 @@ Source-by-source procedure:
   the grade you care about as `value`, with `kind: "pop"` and `pop_grade` set. Pop counts
   contextualize the PSA-10 premium (low pop → outsized premium); the tool displays them
   and never algorithmically adjusts values with them.
-- **PriceCharting** — the card's page under `pricecharting.com` shows ungraded and graded
-  values derived from eBay sales. Single numbers without visible spread, so use it to
-  corroborate, not as the primary.
+- **PriceCharting** — the card's page under `pricecharting.com` shows a full per-grade
+  price guide (Ungraded / 7 / 8 / 9 / 9.5 / PSA 10) computed from **completed sales
+  only** (unsold listings excluded), plus the dated sold listings behind each grade and
+  per-grade sale volume. In practice this makes it the workhorse for per-grade values;
+  use APR/eBay to corroborate the numbers that matter most. Two caveats: the whole-grade
+  columns pool grading companies (a "Grade 9" mixes PSA 9 and CGC 9 sales — CGC often
+  sells lower; only the PSA 10 column is company-specific), and a grade with zero sold
+  listings still shows a price — that's their algorithm's estimate, not an observation.
 - **TCGplayer** — market price for **raw** near-mint singles; the de-facto raw reference.
 
 Thin comps happen on vintage cards at specific grades. Record what's actually there
 (`n_comps: 2` is honest data) rather than widening the search until a number looks solid.
+
+**`n_comps` conventions** (keep them consistent so a low number reads as low confidence):
+record the source's sold-listing count for that grade; record `n_comps: 0` when the
+source shows a price with **no** recorded sales behind it (an estimate); omit the field
+entirely when the source doesn't expose counts at all.
+
+## Screening a whole set
+
+To find every grading candidate in a set without opening a hundred card pages, work in
+two stages:
+
+1. **Set index page** — `pricecharting.com/console/pokemon-<set-slug>?sort=highest-price`
+   lists every card with Ungraded / Grade 9 / PSA 10 columns in one load. Shortlist any
+   card whose Grade 9 or PSA 10 could plausibly clear the all-in grading cost; everything
+   else in the long tail is dead on arrival (commons show near-identical estimated PSA 10
+   values with no sales behind them — ignore those). Ranking by raw price alone is a trap:
+   graded ceilings don't track raw prices.
+2. **Detail pages for the shortlist only** — full per-grade guide, sold counts (the
+   `n_comps` source), and dated sale history.
 
 ## The prompt template
 
@@ -60,8 +91,10 @@ Look up current market values for this Pokémon card:
 
 I need, as of today:
   - raw (ungraded, near-mint) value: eBay sold listings primary, TCGplayer to corroborate
-  - PSA-graded values for grades 7.5, 8, 8.5, 9, 10: PSA Auction Prices Realized primary,
-    eBay sold to corroborate (PSA 7.5 and 8.5 comps may be thin — report what exists)
+  - PSA-graded values for each grade in my configured grade set: [GRADES — copy the
+    `grades` list from config.yaml; note most price guides track whole grades only, so a
+    config of [7, 8, 9, 10] matches the available data; half-grade comps are thin —
+    report what exists]
   - PSA population count at grade 10 from the PSA Population Report
 
 Rules:
@@ -116,14 +149,17 @@ edited or deleted.
 
 ## Template dry run
 
-Dry-run 2026-08-02: a full set of lines in exactly the template's output shape (raw +
-all five grades + a pop line, with `n_comps`, `spread`, real source-URL patterns) was
-generated for one sample card and passed `validate-snapshots` unmodified — 7 lines, 0
-problems, exit 0. The browsing half of the workflow is deliberately not automatable:
-the value sources refuse non-human traffic (PriceCharting and psacard.com both return
-403 to programmatic fetches — verified the same day), which is exactly why this workflow
-is browse-read-cite in a real browser session and why the linter, not the acquisition
-path, is the trust boundary.
+Verified two ways on 2026-08-02:
 
-After any template edit, repeat the dry run: produce lines for one card, validate them in
-a scratch file, and only then commit the new template text.
+- **Format dry run:** a full set of lines in exactly the template's output shape (raw +
+  graded kinds + a pop line, with `n_comps`, `spread`, real source-URL patterns) passed
+  `validate-snapshots` unmodified — 0 problems, exit 0.
+- **End to end:** a full recording pass ran through this workflow for real — an assisted
+  session reading the sources through the owner's browser (server-side fetches get 403'd;
+  PriceCharting and psacard.com both verified blocking them the same day), set-index
+  screening, detail pages for the shortlist, snapshot lines appended and linted clean on
+  the first try. The linter, not the acquisition path, is the trust boundary — and it
+  held.
+
+After any template edit, repeat the format dry run: produce lines for one card, validate
+them in a scratch file, and only then commit the new template text.

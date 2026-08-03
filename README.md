@@ -163,6 +163,12 @@ per-card supplies, insuring for the top-grade outcome), and per-grade profit/los
 that grade, since you already own it raw. Shared per-submission costs (shipping both ways,
 packing) are listed once below the table.
 
+Because this view insures for the *best* outcome, a card whose top-grade value exceeds
+every modeled tier's max declared value shows `-` for tier and cost — that's the tool
+declining to price a submission PSA's published tiers don't cover (their "Premium"
+service starts above $10,000). The `analyze` layer uses the probability-weighted declared
+value instead, which is usually far lower and lands back in a normal tier.
+
 **Expected value (opt-in).** Write down what you believe: a probability for each configured
 grade (default 7.5 / 8 / 8.5 / 9 / 10) plus `below`, the lumped chance of anything under
 the lowest grade. They must sum to 1 — the tool rejects anything else and **never silently
@@ -270,7 +276,7 @@ rejected loudly (a typo must not silently keep a default).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `grades` | `[7.5, 8, 8.5, 9, 10]` | Modeled grade outcomes (ascending; below the lowest is lumped as `below`). |
+| `grades` | `[7.5, 8, 8.5, 9, 10]` | Modeled grade outcomes (ascending; below the lowest is lumped as `below`). Match this to what your price sources track: most guides publish whole grades only, so `[7, 8, 9, 10]` is the practical choice for PriceCharting-sourced snapshots. |
 | `sale_friction` | `0` | Marketplace fee fraction; `> 0` enables the take-home view. |
 | `alpha` | `1.0` | Value of a below-lowest-grade slab as a fraction of raw. |
 | `min_gain` | `20` | Minimum net gain ($) for a *submit* verdict. |
