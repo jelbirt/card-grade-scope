@@ -1,4 +1,5 @@
-"""Hermeticity seams: tests must not inherit a checkout's config.yaml or real data/."""
+"""Hermeticity seams: tests must not inherit a checkout's config.yaml, real data/,
+or whatever cost books happen to sit in data/costs/."""
 
 from click.testing import CliRunner
 
