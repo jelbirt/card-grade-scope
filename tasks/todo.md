@@ -1,6 +1,6 @@
 # card-grade-scope — task checklist
 
-Source of truth for task detail: [tasks/plan.md](plan.md). Status: Phases 1-2 merged; Phase 3 (docs) in review.
+Source of truth for task detail: [tasks/plan.md](plan.md). Status: **all phases merged (2026-08-02)** — project complete pending the pre-publication sweep and the SPEC §13.7 call.
 
 Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md).
 Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended public later** (Jake, 2026-08-01).
@@ -37,7 +37,7 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] Task 10: README incl. AI/deterministic boundary diagram + walkthrough (every fenced command verified against sample data)
 - [x] Task 11: docs/assisted-lookup.md + prompt template (dry run: template-shaped output passes `validate-snapshots`, exit 0)
 - [x] Task 12: End-to-end polish, fresh-clone demo (temp-dir clone, all commands green), final review sweep
-- [ ] ⛳ Checkpoint D — PR #4: hand to Jake (STOP)
+- [x] ⛳ Checkpoint D — PR #4: review pass done (4 findings fixed), field-test learnings folded back, merged by Jake 2026-08-02
 
 ## Known gaps (need Jake's call)
 - [ ] Batch-size N±1 sensitivity shock: in SPEC §6's shock grid, not in the shipped engine (SPEC §13.7). Implement in a follow-up (may relabel goldens) or amend SPEC to drop it.
