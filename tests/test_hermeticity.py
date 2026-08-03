@@ -61,3 +61,20 @@ def test_suite_is_isolated_from_real_data(real_default_data_dir):
     """The autouse fixture pins the data-dir seam to the committed sample."""
     assert paths.default_data_dir is not real_default_data_dir  # seam actually repointed
     assert paths.default_data_dir() == paths.repo_root() / "data" / "sample"
+
+
+def test_real_newest_cost_book_picks_newest(real_newest_cost_book, tmp_path):
+    """The shipped resolver: lexicographically newest psa-costs-*.yaml wins."""
+    (tmp_path / "psa-costs-2026-08-01.yaml").write_text("old\n", encoding="utf-8")
+    (tmp_path / "psa-costs-2026-09-01.yaml").write_text("new\n", encoding="utf-8")
+    assert real_newest_cost_book(tmp_path) == tmp_path / "psa-costs-2026-09-01.yaml"
+
+
+def test_suite_is_isolated_from_checkout_cost_books(real_newest_cost_book, tmp_path):
+    """The autouse fixture pins the no-arg default to the frozen golden book;
+    an explicit costs_dir still resolves for real."""
+    assert paths.newest_cost_book is not real_newest_cost_book  # seam actually repointed
+    frozen = paths.repo_root() / "tests" / "golden" / "fixtures" / "cost-book-frozen.yaml"
+    assert paths.newest_cost_book() == frozen
+    (tmp_path / "psa-costs-2026-09-01.yaml").write_text("x\n", encoding="utf-8")
+    assert paths.newest_cost_book(tmp_path) == tmp_path / "psa-costs-2026-09-01.yaml"
