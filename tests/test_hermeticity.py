@@ -17,8 +17,9 @@ def test_real_default_config_is_repo_root_config(real_default_config):
     assert real_default_config() == paths.repo_root() / "config.yaml"
 
 
-def test_suite_is_isolated_from_local_config():
+def test_suite_is_isolated_from_local_config(real_default_config):
     """The autouse fixture repoints the seam at a file that never exists."""
+    assert paths.default_config is not real_default_config  # seam actually repointed
     assert not paths.default_config().exists()
 
 
@@ -56,6 +57,7 @@ def test_real_default_data_dir_prefers_real_data(real_default_data_dir, tmp_path
     assert real_default_data_dir() == tmp_path / "data"
 
 
-def test_suite_is_isolated_from_real_data():
+def test_suite_is_isolated_from_real_data(real_default_data_dir):
     """The autouse fixture pins the data-dir seam to the committed sample."""
+    assert paths.default_data_dir is not real_default_data_dir  # seam actually repointed
     assert paths.default_data_dir() == paths.repo_root() / "data" / "sample"
