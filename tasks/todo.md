@@ -32,6 +32,7 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 
 ## Post-gate additions (SPEC updated in-line)
 - [x] Values view per-grade profit/loss line (`V_g − V_raw − all-in/card`, net of raw confirmed by Jake) — merged by Jake 2026-08-02 (PR #3)
+- [x] Test-hermeticity fix: suite no longer inherits a checkout-local `config.yaml` (single `paths.default_config()` seam + autouse conftest isolation) — PR #5
 
 ## Phase 3 — Docs + AI workflow (PR #4)
 - [x] Task 10: README incl. AI/deterministic boundary diagram + walkthrough (every fenced command verified against sample data)

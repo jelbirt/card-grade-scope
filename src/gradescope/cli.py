@@ -91,7 +91,7 @@ def values(
     The utility view: no probabilities needed; missing snapshots show as '-'."""
     data = data_dir or paths.default_data_dir()
     try:
-        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        config = load_config(config_path or paths.default_config())
         inventory = load_inventory(data / "inventory.yaml")
         snapshots = load_snapshots(data / "values.jsonl", config.grades)
         book = load_cost_book(cost_book_path or paths.newest_cost_book())
@@ -178,7 +178,7 @@ def analyze(
     # exactly date.today(); pass --as-of for reproducible runs.
     as_of_date = as_of.date() if as_of else date.today()  # noqa: DTZ011
     try:
-        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        config = load_config(config_path or paths.default_config())
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
     try:
@@ -370,7 +370,7 @@ def add(data_dir: Path | None, priors_path: Path | None, config_path: Path | Non
     inventory_path = data / "inventory.yaml"
     probabilities_path = data / "probabilities.yaml"
     try:
-        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        config = load_config(config_path or paths.default_config())
         table = load_guided_priors(priors_path or paths.guided_priors(), config.grades)
         inventory = load_inventory(inventory_path) if inventory_path.exists() else {}
         probabilities = (
@@ -570,7 +570,7 @@ def snapshot(data_dir: Path | None, config_path: Path | None) -> None:
     values_path = data / "values.jsonl"
     inventory_path = data / "inventory.yaml"
     try:
-        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        config = load_config(config_path or paths.default_config())
         inventory = load_inventory(inventory_path) if inventory_path.exists() else {}
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -660,7 +660,7 @@ def validate_snapshots(ctx: click.Context, file: Path, config_path: Path | None)
     This is the deterministic gate for hand- or AI-written snapshot files
     (SPEC §7): nothing enters analysis without passing it."""
     try:
-        config = load_config(config_path or paths.repo_root() / "config.yaml")
+        config = load_config(config_path or paths.default_config())
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
     snaps, errors = scan_snapshots(file, config.grades)

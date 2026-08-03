@@ -9,6 +9,15 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def default_config() -> Path:
+    """The operator's optional engine config — untracked, machine-local (SPEC §3).
+
+    The single seam for default-config resolution: every CLI command that
+    takes --config falls back to this, and the test suite repoints it so
+    tests never inherit a developer's personal config.yaml."""
+    return repo_root() / "config.yaml"
+
+
 def guided_priors() -> Path:
     """The guided-entry prior lookup table — shipped, committed, editable."""
     return repo_root() / "data" / "guided-priors.yaml"
