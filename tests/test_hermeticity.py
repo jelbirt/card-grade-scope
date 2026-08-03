@@ -1,4 +1,4 @@
-"""Default-config seam: tests must not inherit a checkout-local config.yaml."""
+"""Hermeticity seams: tests must not inherit a checkout's config.yaml or real data/."""
 
 from click.testing import CliRunner
 
@@ -45,3 +45,17 @@ def test_explicit_config_beats_default(tmp_path, monkeypatch):
     result = CliRunner().invoke(main, ["validate-snapshots", str(f), "--config", str(explicit_cfg)])
     assert result.exit_code == 1
     assert "unknown kind 'psa9'" in result.output
+
+
+def test_real_default_data_dir_prefers_real_data(real_default_data_dir, tmp_path, monkeypatch):
+    """The shipped resolver: data/ when an inventory exists there, else data/sample/."""
+    monkeypatch.setattr(paths, "repo_root", lambda: tmp_path)
+    (tmp_path / "data" / "sample").mkdir(parents=True)
+    assert real_default_data_dir() == tmp_path / "data" / "sample"
+    (tmp_path / "data" / "inventory.yaml").write_text("[]\n", encoding="utf-8")
+    assert real_default_data_dir() == tmp_path / "data"
+
+
+def test_suite_is_isolated_from_real_data():
+    """The autouse fixture pins the data-dir seam to the committed sample."""
+    assert paths.default_data_dir() == paths.repo_root() / "data" / "sample"
