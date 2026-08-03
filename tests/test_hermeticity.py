@@ -1,4 +1,5 @@
-"""Default-config seam: tests must not inherit a checkout-local config.yaml."""
+"""Hermeticity seams: tests must not inherit a checkout's config.yaml, real data/,
+or whatever cost books happen to sit in data/costs/."""
 
 from click.testing import CliRunner
 
@@ -17,8 +18,9 @@ def test_real_default_config_is_repo_root_config(real_default_config):
     assert real_default_config() == paths.repo_root() / "config.yaml"
 
 
-def test_suite_is_isolated_from_local_config():
+def test_suite_is_isolated_from_local_config(real_default_config):
     """The autouse fixture repoints the seam at a file that never exists."""
+    assert paths.default_config is not real_default_config  # seam actually repointed
     assert not paths.default_config().exists()
 
 
@@ -45,3 +47,35 @@ def test_explicit_config_beats_default(tmp_path, monkeypatch):
     result = CliRunner().invoke(main, ["validate-snapshots", str(f), "--config", str(explicit_cfg)])
     assert result.exit_code == 1
     assert "unknown kind 'psa9'" in result.output
+
+
+def test_real_default_data_dir_prefers_real_data(real_default_data_dir, tmp_path, monkeypatch):
+    """The shipped resolver: data/ when an inventory exists there, else data/sample/."""
+    monkeypatch.setattr(paths, "repo_root", lambda: tmp_path)
+    (tmp_path / "data" / "sample").mkdir(parents=True)
+    assert real_default_data_dir() == tmp_path / "data" / "sample"
+    (tmp_path / "data" / "inventory.yaml").write_text("[]\n", encoding="utf-8")
+    assert real_default_data_dir() == tmp_path / "data"
+
+
+def test_suite_is_isolated_from_real_data(real_default_data_dir):
+    """The autouse fixture pins the data-dir seam to the committed sample."""
+    assert paths.default_data_dir is not real_default_data_dir  # seam actually repointed
+    assert paths.default_data_dir() == paths.repo_root() / "data" / "sample"
+
+
+def test_real_newest_cost_book_picks_newest(real_newest_cost_book, tmp_path):
+    """The shipped resolver: lexicographically newest psa-costs-*.yaml wins."""
+    (tmp_path / "psa-costs-2026-08-01.yaml").write_text("old\n", encoding="utf-8")
+    (tmp_path / "psa-costs-2026-09-01.yaml").write_text("new\n", encoding="utf-8")
+    assert real_newest_cost_book(tmp_path) == tmp_path / "psa-costs-2026-09-01.yaml"
+
+
+def test_suite_is_isolated_from_checkout_cost_books(real_newest_cost_book, tmp_path):
+    """The autouse fixture pins the no-arg default to the frozen golden book;
+    an explicit costs_dir still resolves for real."""
+    assert paths.newest_cost_book is not real_newest_cost_book  # seam actually repointed
+    frozen = paths.repo_root() / "tests" / "golden" / "fixtures" / "cost-book-frozen.yaml"
+    assert paths.newest_cost_book() == frozen
+    (tmp_path / "psa-costs-2026-09-01.yaml").write_text("x\n", encoding="utf-8")
+    assert paths.newest_cost_book(tmp_path) == tmp_path / "psa-costs-2026-09-01.yaml"
