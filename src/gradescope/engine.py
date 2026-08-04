@@ -478,6 +478,23 @@ def analyze_standalone(
 
 
 @dataclass(frozen=True)
+class SizeShock:
+    """SPEC §6 batch-size N±1 shock: this card's numbers when the flat split is
+    recomputed over a batch of `n` cards, the shared pool S held fixed.
+
+    Informational only (decision 2026-08-04): reported alongside the verdict,
+    never feeding robustness labels or the verdict itself. Tier selection and
+    S are unchanged — tier minimums already get their own flags. Verdicts are
+    base-rule verdicts (same convention as FlipPoint), per view.
+    """
+
+    n: int
+    share: Decimal
+    gain: dict[str, Decimal]
+    verdict: dict[str, str]
+
+
+@dataclass(frozen=True)
 class MarginalCard:
     """How one card interacts with the batch's shared costs, per view.
 
@@ -494,6 +511,8 @@ class MarginalCard:
     in_batch_gain: dict[str, Decimal]
     removal_delta: dict[str, Decimal]  # total_net_gain(without card) - (with card)
     category: dict[str, str]
+    # N-1 first (absent for a 1-card batch), then N+1.
+    size_shocks: tuple[SizeShock, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -604,6 +623,36 @@ def _tier_minimum_flags(
     return flags
 
 
+def _size_shock(
+    n_hyp: int,
+    analysis: CardAnalysis,
+    old_share: Decimal,
+    shared,
+    views: tuple[str, ...],
+    config: EngineConfig,
+) -> SizeShock:
+    """One card's gain and base-rule verdict with its flat share recomputed as
+    S/n_hyp, the pool S held fixed (SPEC §6 batch-size N±1 shock)."""
+    new_share = shared.share(n_hyp)
+    delta = new_share - old_share
+    gains: dict[str, Decimal] = {}
+    verdicts: dict[str, str] = {}
+    for v in views:
+        view = _view_of(analysis, v)
+        gain = view.net_gain - delta
+        verdict, _ = _rule_verdict(
+            gain,
+            view.net_by_grade[config.top_grade],
+            analysis.cost.total + delta,
+            analysis.probs,
+            config,
+            analysis.short_circuited,
+        )
+        gains[v] = gain
+        verdicts[v] = verdict
+    return SizeShock(n=n_hyp, share=new_share, gain=gains, verdict=verdicts)
+
+
 def analyze_batch(
     batch: Batch,
     probs_by_card: dict[str, GradeProbs],
@@ -668,6 +717,12 @@ def analyze_batch(
                 category[v] = "ride_along"
             else:
                 category[v] = "negative"
+        n = len(batch.card_ids)
+        size_shocks = tuple(
+            _size_shock(n_hyp, in_batch, shares_by_card[cid], shared, views, config)
+            for n_hyp in (n - 1, n + 1)
+            if n_hyp >= 1
+        )
         marginals.append(
             MarginalCard(
                 card_id=cid,
@@ -675,6 +730,7 @@ def analyze_batch(
                 in_batch_gain=in_batch_gain,
                 removal_delta=removal_delta,
                 category=category,
+                size_shocks=size_shocks,
             )
         )
 

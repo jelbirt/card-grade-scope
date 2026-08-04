@@ -230,12 +230,30 @@ CATEGORY_LABEL = {
 }
 
 
+def _size_shock_cell(analysis: CardAnalysis, marginal, n: int) -> str:
+    """Compact N±1 column (sticker view, base-rule verdicts — the FlipPoint
+    convention): 'stable', or which hypothetical batch size flips this card."""
+    flipped = [
+        s for s in marginal.size_shocks if s.verdict["sticker"] != analysis.sticker.base_verdict
+    ]
+    if not flipped:
+        return "stable"
+    if len(flipped) == 2:
+        return "flips both"
+    return "flips " + ("N-1" if flipped[0].n < n else "N+1")
+
+
 def render_summary_table(result: BatchAnalysis) -> list[str]:
     """One line per card: everything needed to act, no detail required (SPEC §6)."""
     two_views = len(result.view_names) == 2
     top = result.analyses[0].values.grades[-1] if result.analyses else "top"
+    n = len(result.batch.card_ids)
+    marginals_by_card = {m.card_id: m for m in result.marginals}
     gain_cols = f" {'net gain':>10}" if not two_views else f" {'sticker':>10} {'take-home':>10}"
-    header = f"  {'card':<32} {'verdict':<13}{gain_cols} {'BE p' + top:>8} {'robust':>10} flags"
+    header = (
+        f"  {'card':<32} {'verdict':<13}{gain_cols} {'BE p' + top:>8} {'robust':>10}"
+        f" {'N±1':>10} flags"
+    )
     lines = [header, "  " + "-" * (len(header) - 2)]
     for a in result.analyses:
         be = a.sticker.breakeven
@@ -251,9 +269,11 @@ def render_summary_table(result: BatchAnalysis) -> list[str]:
         gains = f" {money(a.sticker.net_gain):>10}"
         if two_views:
             gains += f" {money(a.take_home.net_gain):>10}"
+        size_txt = _size_shock_cell(a, marginals_by_card[a.card_id], n)
         lines.append(
             f"  {a.card_id:<32} {VERDICT_LABEL[a.overall_verdict]:<13}"
-            f"{gains} {be_txt:>8} {a.sticker.sensitivity.robustness:>10} {' '.join(flags)}"
+            f"{gains} {be_txt:>8} {a.sticker.sensitivity.robustness:>10}"
+            f" {size_txt:>10} {' '.join(flags)}"
         )
     lines.append("  " + "-" * (len(header) - 2))
     totals = f" {money(result.total_net_gain['sticker']):>10}"
@@ -300,6 +320,21 @@ def render_batch(result: BatchAnalysis, detail: bool = True) -> str:
             f"    {m.card_id}: {cats}  (in-batch gain {gains}; "
             f"removing it changes total net gain by {deltas})"
         )
+        n = len(b.card_ids)
+        shock_bits = []
+        if not any(s.n < n for s in m.size_shocks):
+            shock_bits.append("N-1 n/a (batch of 1)")
+        for s in m.size_shocks:
+            verdicts = VERDICT_LABEL[s.verdict["sticker"]]
+            shocked_gains = money_signed(s.gain["sticker"])
+            if two_views:
+                verdicts += f" / {VERDICT_LABEL[s.verdict['take_home']]}"
+                shocked_gains += f" / {money_signed(s.gain['take_home'])}"
+            shock_bits.append(
+                f"{'N-1' if s.n < n else 'N+1'} (share {money(s.share)}): "
+                f"{verdicts} ({shocked_gains})"
+            )
+        lines.append(f"      batch-size shock, rule verdicts: {'; '.join(shock_bits)}")
     for flag in result.tier_minimum_flags:
         lines.append(f"  NOTE: {flag}")
     if detail:

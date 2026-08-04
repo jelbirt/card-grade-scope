@@ -224,6 +224,13 @@ the estimate most likely to be wrong:
 would flip it. The detail view names the exact flip so you can judge it.) Every threshold
 in this section is a `config.yaml` knob.
 
+Batch reports carry one extra, purely informational probe: an **N±1 column** showing
+whether recomputing a card's share of the shared costs over one more or one fewer card
+would change its rule verdict (`stable`, `flips N-1`, `flips N+1`, or `flips both`), with
+the shocked shares, gains, and verdicts spelled out in the marginal-analysis lines. It
+answers "does this card's verdict depend on exactly who else is in the box?" — and it
+never feeds the robustness labels or the verdicts themselves.
+
 ## Your own collection
 
 Real data lives in gitignored files that the tool prefers automatically when present:

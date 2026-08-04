@@ -1,6 +1,6 @@
 # card-grade-scope — task checklist
 
-Source of truth for task detail: [tasks/plan.md](plan.md). Status: **all phases merged (2026-08-02)** — project complete pending the pre-publication sweep and the SPEC §13.7 call.
+Source of truth for task detail: [tasks/plan.md](plan.md). Status: **all phases merged (2026-08-02)** — project complete pending the pre-publication sweep (SPEC §13.7 resolved 2026-08-04, PR #7).
 
 Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md).
 Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended public later** (Jake, 2026-08-01).
@@ -34,6 +34,7 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] Values view per-grade profit/loss line (`V_g − V_raw − all-in/card`, net of raw confirmed by Jake) — merged by Jake 2026-08-02 (PR #3)
 - [x] Test-hermeticity fix: suite no longer inherits a checkout-local `config.yaml` (single `paths.default_config()` seam + autouse conftest isolation) — PR #5
 - [x] Test-hermeticity fix, part 2: suite no longer inherits a checkout's real `data/` or its `data/costs/` state (autouse fixtures pin `paths.default_data_dir` to `data/sample/` and `paths.newest_cost_book` to the frozen golden book) — PR #6
+- [x] Batch-size N±1 shock (SPEC §13.7 resolved by Jake 2026-08-04: additive): informational `N±1` summary column + marginal-analysis detail; shares recomputed as S/(N±1), pool and tiers fixed; never feeds robustness/verdicts, so existing outputs unchanged — PR #7
 
 ## Phase 3 — Docs + AI workflow (PR #4)
 - [x] Task 10: README incl. AI/deterministic boundary diagram + walkthrough (every fenced command verified against sample data)
@@ -42,4 +43,4 @@ Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended 
 - [x] ⛳ Checkpoint D — PR #4: review pass done (4 findings fixed), field-test learnings folded back, merged by Jake 2026-08-02
 
 ## Known gaps (need Jake's call)
-- [ ] Batch-size N±1 sensitivity shock: in SPEC §6's shock grid, not in the shipped engine (SPEC §13.7). Implement in a follow-up (may relabel goldens) or amend SPEC to drop it.
+- [x] Batch-size N±1 sensitivity shock — resolved (Jake, 2026-08-04): implemented additively, see Post-gate additions (PR #7).
