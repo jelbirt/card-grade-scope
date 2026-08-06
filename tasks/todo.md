@@ -6,10 +6,10 @@ Pen registry: real `data/` files live only in the main checkout (see CLAUDE.md).
 Remote: https://github.com/jelbirt/card-grade-scope — **private now, intended public later** (Jake, 2026-08-01).
 
 ## Pre-publication sweep (before flipping the repo public)
-- [ ] `git log --all --diff-filter=A --name-only` shows nothing under `data/` beyond `data/costs/` and `data/sample/`
-- [ ] Grep history and docs for real-inventory specifics (condition/provenance of Jake's actual copies), none present
-- [ ] PR bodies / issues / CI logs contain no real-data output (analysis runs on real data happen locally only)
-- [ ] README states the sample data is synthetic
+- [x] `git log --all --diff-filter=A --name-only` shows nothing under `data/` beyond `data/costs/` and `data/sample/` — one additional file, `data/guided-priors.yaml`, is the SPEC §5.2 guided-entry lookup table (shipped config, no personal data); allowed (swept 2026-08-06)
+- [x] Grep history and docs for real-inventory specifics (condition/provenance of Jake's actual copies), none present (swept 2026-08-06; all hits are pricing-source prose or synthetic fixtures)
+- [x] PR bodies / issues / CI logs contain no real-data output (PRs 1-7 scanned 2026-08-06; all cited values trace to the synthetic demo set)
+- [x] README states the sample data is synthetic (README line 22)
 
 ## Scaffold
 - [x] Run repo-adopt (checks.sh, commit guard, worktree scripts, CI, PR template, repo CLAUDE.md)
