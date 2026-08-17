@@ -22,8 +22,13 @@ delete the remote branch.
 
 1. `git worktree list` from the main checkout.
 2. For each non-main worktree: check `git -C <dir> status --porcelain` is
-   empty and the branch is merged (`git merge-base --is-ancestor <branch> main`,
-   or squash-merged per the PR history).
+   empty and the branch is merged — `git merge-base --is-ancestor
+   refs/heads/<branch> refs/heads/main`, or the same against
+   `refs/remotes/origin/main` (fetch first), or squash-merged per the PR
+   history. Use fully-qualified refs: a bare name lets a same-named tag win
+   the lookup and make an unmerged branch look merged. Check origin too —
+   branches here merge by PR, so local `main` is routinely behind and a
+   local-only test would drop merged branches off this list.
 3. List the candidates, confirm once with the user, then run
    `scripts/rm-worktree.sh` for each (with `--force` only where squash-merged).
 
