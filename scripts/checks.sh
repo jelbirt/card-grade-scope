@@ -11,6 +11,14 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+# `bash -n a.sh b.sh` parses only a.sh — the rest become its positional
+# parameters, so a syntax error in every script but the first went unseen. One
+# file per invocation, and globbed so a script added later is still checked.
+# This lives here rather than in CI so that local green still means CI green.
+for f in scripts/*.sh .claude/hooks/*.sh; do
+  bash -n "$f"
+done
+
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest -q
