@@ -15,7 +15,5 @@ jobs:
           python-version: "3.12"
       - name: Locked install
         run: uv sync --frozen
-      - name: Lint generated scripts
-        run: bash -n scripts/*.sh .claude/hooks/*.sh
       - name: Green bar
         run: scripts/checks.sh

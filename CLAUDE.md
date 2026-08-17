@@ -8,6 +8,7 @@ PSA grading decision-support tool. Source of truth: [SPEC.md](SPEC.md) (approved
 `scripts/checks.sh` defines the bar once — CI runs it, the commit guard enforces it. It runs:
 
 ```
+bash -n on each of scripts/*.sh and .claude/hooks/*.sh
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest -q
