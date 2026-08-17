@@ -61,7 +61,9 @@ def prefix_env(text):
     for name in ESCAPES:
         m = re.search(r"(?:^|[\s;&|(])" + name + r"=(\S*)", text)
         if m:
-            env[name] = m.group(1)
+            # Strip surrounding quotes: the tokenized path gets that from shlex,
+            # and the two paths must agree on SKIP_CHECKS="1".
+            env[name] = m.group(1).strip("\"'")
     return env
 
 def split_segments(tokens):
@@ -86,10 +88,17 @@ def analyze(cmd_text, cwd):
     except ValueError:
         # Untokenizable (e.g. tricky quoting in a -m message): conservative
         # substring fallback — treat as a commit in the ambient cwd. Escapes are
-        # read only from the region BEFORE the git token, where a real
-        # assignment prefix can live.
+        # read only from the region BEFORE the git token of the segment that
+        # carries the commit, where a real assignment prefix can live. Splitting
+        # into segments first matters: `git add -A && SKIP_CHECKS=1 git commit`
+        # is the usual idiom, and anchoring on the first `git` in the whole
+        # command would look for the escape in an empty prefix and drop it.
+        for seg in re.split(r"&&|\|\||;|\n", cmd_text):
+            g = re.search(r"(?:^|\s)git(?:\s|$)", seg)
+            if g and "commit" in seg[g.end():]:
+                return True, cwd, prefix_env(seg[: g.start()])
         if "git" in cmd_text and "commit" in cmd_text:
-            return True, cwd, prefix_env(cmd_text[: cmd_text.find("git")])
+            return True, cwd, {}
         return False, cwd, {}
     for seg in split_segments(tokens):
         i, env, seg_cwd = 0, {}, cwd
